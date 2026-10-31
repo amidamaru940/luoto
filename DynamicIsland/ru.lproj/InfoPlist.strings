@@ -1,0 +1,15 @@
+/* Luoto — Russian texts of the macOS permission requests. */
+"CFBundleDisplayName" = "Luoto";
+"NSAppleEventsUsageDescription" = "Luoto управляет Spotify и Музыкой, синхронизирует Заметки, если вы это включите, и останавливает запись экрана через System Events.";
+"NSAppleMusicUsageDescription" = "Luoto обращается к Apple Music за анимированными обложками для экрана блокировки, если вы это включите.";
+"NSAudioCaptureUsageDescription" = "Luoto нужен доступ к звуку, чтобы показывать волну музыки в реальном времени и менять громкость отдельных приложений. Звук обрабатывается только на лету и никогда не записывается и не сохраняется.";
+"NSBluetoothAlwaysUsageDescription" = "Luoto читает заряд Bluetooth-наушников, чтобы показывать его в индикаторе и на экране блокировки.";
+"NSCalendarsFullAccessUsageDescription" = "Luoto показывает ближайшие события календаря в «островке» и на экране блокировки.";
+"NSDesktopFolderUsageDescription" = "Luoto читает папку скриншотов (Рабочий стол, если не выбрана ~/Screenshots), чтобы собирать новые скриншоты в пачки, и файлы оттуда, которые вы кладёте на полку или копируете.";
+"NSDocumentsFolderUsageDescription" = "Luoto читает папку скриншотов, если она лежит в «Документах», и файлы оттуда, которые вы кладёте на полку или копируете.";
+"NSDownloadsFolderUsageDescription" = "Luoto следит за папкой «Загрузки», чтобы показывать идущие загрузки, если вы это включите, и читает файлы оттуда, которые вы кладёте на полку или копируете.";
+"NSLocationUsageDescription" = "Luoto использует геопозицию, чтобы показывать погоду на экране блокировки. Координаты уходят в выбранный вами сервис погоды.";
+"NSLocationWhenInUseUsageDescription" = "Luoto использует геопозицию, чтобы показывать погоду на экране блокировки. Координаты уходят в выбранный вами сервис погоды.";
+"NSRemindersFullAccessUsageDescription" = "Luoto показывает ваши напоминания в «островке» и на экране блокировки.";
+"NSScreenCaptureUsageDescription" = "Luoto делает снимок экрана, только когда вы нажимаете кнопку снимка в Ассистенте экрана.";
+"NSLocalNetworkUsageDescription" = "Luoto ищет устройства в вашей сети, чтобы отправлять файлы через LocalSend, если вы это включите.";

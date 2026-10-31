@@ -1,0 +1,14 @@
+"CFBundleDisplayName" = "Luoto";
+"NSAppleEventsUsageDescription" = "Luoto, Spotify ve Müzik'i kontrol etmek, açarsanız Notlar'ı eşzamanlamak ve ekran kaydını System Events ile durdurmak için Apple Events kullanır.";
+"NSBluetoothAlwaysUsageDescription" = "Luoto, Bluetooth kulaklıklarınızın pil düzeyini HUD'da ve kilit ekranında göstermek için okur.";
+"NSCalendarsFullAccessUsageDescription" = "Luoto, sıradaki takvim etkinliklerinizi adada ve kilit ekranında gösterir.";
+"NSDesktopFolderUsageDescription" = "Luoto, yeni ekran görüntülerini gruplamak için ekran görüntüsü klasörünüzü (~/Screenshots seçmediyseniz Masaüstü) ve oradan rafa koyduğunuz veya kopyaladığınız dosyaları okur.";
+"NSDocumentsFolderUsageDescription" = "Luoto, ekran görüntüsü klasörünüzü Belgeler'de tutuyorsanız okur; oradan rafa koyduğunuz veya kopyaladığınız dosyaları da okur.";
+"NSDownloadsFolderUsageDescription" = "Luoto, açarsanız devam eden indirmeleri göstermek için İndirilenler klasörünü izler; oradan rafa koyduğunuz veya kopyaladığınız dosyaları da okur.";
+"NSLocationUsageDescription" = "Luoto, kilit ekranında hava durumunu göstermek için konumunuzu kullanır. Koordinatlar seçtiğiniz hava durumu hizmetine gönderilir.";
+"NSLocationWhenInUseUsageDescription" = "Luoto, kilit ekranında hava durumunu göstermek için konumunuzu kullanır. Koordinatlar seçtiğiniz hava durumu hizmetine gönderilir.";
+"NSAudioCaptureUsageDescription" = "Luoto, gerçek zamanlı müzik dalga biçimini göstermek ve uygulamaların sesini ayrı ayrı ayarlamak için ses yakalama iznine ihtiyaç duyar. Ses yalnızca anlık işlenir, asla kaydedilmez.";
+"NSScreenCaptureUsageDescription" = "Luoto, ekran görüntüsünü yalnızca Ekran Asistanı'ndaki kırpma düğmesine bastığınızda alır.";
+"NSAppleMusicUsageDescription" = "Luoto, açarsanız kilit ekranı için hareketli albüm kapakları bulmak üzere Apple Music'i kullanır.";
+"NSLocalNetworkUsageDescription" = "Luoto, açarsanız LocalSend ile dosya göndermek için ağınızdaki yakın aygıtları bulur.";
+"NSRemindersFullAccessUsageDescription" = "Luoto, anımsatıcılarınızı adada ve kilit ekranında gösterir.";

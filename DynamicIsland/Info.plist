@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Luoto uses Apple Music to find animated artwork for the lock screen, if you turn that on.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Luoto needs audio capture permission to show the real-time music waveform and to set the volume of individual apps. Audio is only processed live and is never recorded or saved.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Luoto finds nearby devices on your network to send files with LocalSend, if you turn that on.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Luoto takes a screenshot only when you press the snip button in the Screen Assistant.</string>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
+	<key>SUEnableSystemProfiling</key>
+	<false/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/amidamaru940/luoto/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>gAEJzyCMeObdQQ6wNoVLPtgAnmFIaY9E69xbHuLXY94=</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict/>
+	</array>
+</dict>
+</plist>

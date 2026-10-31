@@ -1,0 +1,480 @@
+/*
+ * Atoll (DynamicIsland)
+ * Copyright (C) 2024-2026 Atoll Contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import AppKit
+import Defaults
+import SwiftUI
+
+struct DoNotDisturbLiveActivity: View {
+    @EnvironmentObject var vm: DynamicIslandViewModel
+    @ObservedObject var manager = DoNotDisturbManager.shared
+    @Default(.showDoNotDisturbLabel) private var showLabelSetting
+    @Default(.focusIndicatorNonPersistent) private var focusToastMode
+
+    @State private var isExpanded = false
+    @State private var showInactiveIcon = false
+    @State private var iconScale: CGFloat = 1.0
+    @State private var scaleResetTask: Task<Void, Never>?
+    @State private var collapseTask: Task<Void, Never>?
+    @State private var cleanupTask: Task<Void, Never>?
+
+    private enum ToastTiming {
+        static let activeDisplay: UInt64 = 1800  // focus enabled toast linger
+        static let inactiveDisplay: UInt64 = 1500  // focus disabled toast linger
+    }
+
+    var body: some View {
+        let geometry = closedGeometry
+        HStack(spacing: 0) {
+            iconWing
+                .frame(width: geometry.leadingWing, height: ClosedWingE.content, alignment: .leading)
+                .offset(x: -ClosedWingE.outset)
+
+            Rectangle()
+                .fill(Color.black)
+                .frame(width: geometry.middle)
+
+            labelWing
+                .frame(width: geometry.trailingWing, height: ClosedWingE.content, alignment: .trailing)
+                .offset(x: ClosedWingE.outset)
+        }
+        .frame(width: geometry.width, height: vm.effectiveClosedNotchHeight)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
+        .onAppear(perform: handleInitialState)
+        .onChange(of: manager.isDoNotDisturbActive, handleFocusStateChange)
+        .onChange(of: manager.focusToastTrigger, handleFocusModeSwitchToast)
+        .onChange(of: focusToastMode, handleToastModeSettingChange)
+        .onDisappear(perform: cancelPendingTasks)
+    }
+
+    // MARK: - Layout
+
+    /// The Focus glyph's box in the leading wing.
+    static let glyphWidth: CGFloat = ClosedWingE.content
+
+    /// The name's width in the trailing wing: its own, up to the cap.
+    static func labelWidth(_ label: String) -> CGFloat {
+        min(ClosedWingE.measure(label), ClosedWingE.textCap)
+    }
+
+    /// The glyph flush left in the leading wing, the name flush right in the
+    /// trailing one, after the camera; both wings as wide as the wider. The
+    /// old row gave the name a wider wing than the glyph, so the island,
+    /// centred on the camera, slid the name in under it.
+    static func closedGeometry(
+        closedNotchWidth: CGFloat,
+        middle: CGFloat? = nil,
+        showsGlyph: Bool,
+        label: String?
+    ) -> ClosedWingGeometry {
+        ClosedWingGeometry.equalWings(
+            closedNotchWidth: closedNotchWidth,
+            middle: middle,
+            leading: showsGlyph ? glyphWidth : 0,
+            trailing: label.map(labelWidth) ?? 0
+        )
+    }
+
+    private var showsGlyph: Bool {
+        isExpanded || showInactiveIcon
+    }
+
+    private var closedGeometry: ClosedWingGeometry {
+        let label = shouldShowLabel ? labelText : nil
+        // A brief toast that has folded its wings shrinks to the idle width,
+        // so the hand-over to the idle island does not jump.
+        let middle = focusToastMode && !showsGlyph && label == nil
+            ? collapsedToastBaseWidth
+            : collapsedNotchWidth
+        return Self.closedGeometry(
+            closedNotchWidth: vm.closedNotchSize.width,
+            middle: middle,
+            showsGlyph: showsGlyph,
+            label: label
+        )
+    }
+
+    private var collapsedNotchWidth: CGFloat {
+        let width = currentClosedNotchWidth
+        let scale = (resolvedScreen?.backingScaleFactor).flatMap { $0 > 0 ? $0 : nil }
+            ?? NSScreen.main?.backingScaleFactor
+            ?? 2
+        let aligned = (width * scale).rounded(.down) / scale
+        return max(0, aligned)
+    }
+
+    private var currentClosedNotchWidth: CGFloat {
+        if vm.notchState == .closed, vm.notchSize.width > 0 {
+            return vm.notchSize.width
+        }
+        return vm.closedNotchSize.width
+    }
+
+    private var resolvedScreen: NSScreen? {
+        if let name = vm.screen,
+           let match = NSScreen.screens.first(where: { $0.localizedName == name }) {
+            return match
+        }
+        return NSScreen.main
+    }
+
+    private var closedNotchContentInset: CGFloat {
+        cornerRadiusInsets.closed.top + cornerRadiusInsets.closed.bottom
+    }
+
+    private var collapsedToastBaseWidth: CGFloat {
+        max(0, collapsedNotchWidth - closedNotchContentInset)
+    }
+
+    private var shouldShowLabel: Bool {
+        focusToastMode ? (isExpanded && !labelText.isEmpty) : (showLabelSetting && isExpanded && !labelText.isEmpty)
+    }
+
+    // MARK: - Focus metadata
+
+    private var focusMode: FocusModeType {
+        FocusModeType.resolve(
+            identifier: manager.currentFocusModeIdentifier,
+            name: manager.currentFocusModeName
+        )
+    }
+
+    private var activeAccentColor: Color {
+        focusMode.accentColor
+    }
+
+    private var labelText: String {
+        if focusToastMode {
+            return manager.isDoNotDisturbActive ? "On" : "Off"
+        }
+
+        return showLabelSetting ? focusName : ""
+    }
+
+    /// The Focus mode's name, shown or not: VoiceOver says it either way
+    /// (the moon alone is the default since 1.1.8).
+    private var focusName: String {
+        let trimmed = manager.currentFocusModeName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            return trimmed
+        } else if focusMode == .doNotDisturb {
+            return "Do Not Disturb"
+        } else {
+            let fallback = focusMode.displayName
+            return fallback.isEmpty ? "Focus" : fallback
+        }
+    }
+
+    private var accessibilityDescription: String {
+        if manager.isDoNotDisturbActive {
+            return "Focus active: \(focusName)"
+        } else {
+            return "Focus inactive"
+        }
+    }
+
+    private var currentIcon: Image {
+        if manager.isDoNotDisturbActive {
+            return focusMode.resolvedActiveIcon(usePrivateSymbol: true)
+        } else if showInactiveIcon {
+            return inactiveIconMatchingActiveStyle
+        } else {
+            return focusMode.resolvedActiveIcon(usePrivateSymbol: true)
+        }
+    }
+
+    private var inactiveIconMatchingActiveStyle: Image {
+        if focusMode == .work {
+            return focusMode.resolvedActiveIcon(usePrivateSymbol: true).renderingMode(.template)
+        }
+
+        if focusMode == .gaming,
+           SymbolAvailabilityCache.shared.isSymbolAvailable("rocket.circle.fill") {
+            return Image(systemName: "rocket.circle.fill")
+        }
+
+        if let internalName = focusMode.internalSymbolName {
+            if let outlineName = outlineVariant(for: internalName),
+               SymbolAvailabilityCache.shared.isSymbolAvailable(outlineName),
+               let outlinedImage = Image(internalSystemName: outlineName) {
+                return outlinedImage.renderingMode(.template)
+            }
+
+            if let filledImage = Image(internalSystemName: internalName) {
+                return filledImage.renderingMode(.template)
+            }
+        }
+
+        return Image(systemName: focusMode.inactiveSymbol)
+    }
+
+    private func outlineVariant(for internalName: String) -> String? {
+        guard internalName.hasSuffix(".fill") else { return nil }
+        let trimmed = String(internalName.dropLast(5))
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var currentIconColor: Color {
+        if manager.isDoNotDisturbActive {
+            return activeAccentColor
+        } else if showInactiveIcon {
+            return .white
+        } else {
+            return activeAccentColor
+        }
+    }
+
+    // MARK: - Subviews
+
+    private var iconWing: some View {
+        Color.clear
+            .overlay(alignment: .leading) {
+                if showsGlyph {
+                    currentIcon
+                        .font(DSE.Typeface.glyphClosed)
+                        .foregroundColor(currentIconColor)
+                        .contentTransition(.opacity)
+                        .scaleEffect(iconScale)
+                        .animation(.none, value: iconScale)
+                        .frame(width: Self.glyphWidth, height: ClosedWingE.content)
+                }
+            }
+            .animation(.smooth(duration: 0.3), value: showsGlyph)
+    }
+
+    private var labelWing: some View {
+        Color.clear
+            .overlay(alignment: .trailing) {
+                if shouldShowLabel {
+                    ClosedWingText(
+                        text: labelText,
+                        width: ClosedWingE.measure(labelText),
+                        color: labelColor
+                    )
+                    .contentTransition(.opacity)
+                }
+            }
+            .animation(.smooth(duration: 0.3), value: shouldShowLabel)
+    }
+
+    private var labelColor: Color {
+        if focusToastMode {
+            return manager.isDoNotDisturbActive ? activeAccentColor : .white
+        }
+        return activeAccentColor
+    }
+
+    // MARK: - State transitions
+
+    private func handleInitialState() {
+        if manager.isDoNotDisturbActive {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                isExpanded = true
+            }
+            if focusToastMode {
+                scheduleTransientCollapse()
+            }
+        }
+    }
+
+    private func handleFocusStateChange(_ oldValue: Bool, _ isActive: Bool) {
+        cancelPendingTasks()
+
+        if isActive {
+            // Force a clean collapsed baseline before animating ON.
+            // This avoids cases where prior OFF state leaves the view mid-transition.
+            withAnimation(.none) {
+                showInactiveIcon = false
+                isExpanded = false
+                iconScale = 1.0
+            }
+
+            // Run the expansion on the next runloop tick so the reset takes effect first.
+            DispatchQueue.main.async {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    iconScale = 1.0
+                    isExpanded = true
+                }
+                if focusToastMode {
+                    scheduleTransientCollapse()
+                }
+            }
+        } else {
+            triggerInactiveAnimation()
+        }
+    }
+
+    private func handleFocusModeSwitchToast(_ oldValue: UUID, _ newValue: UUID) {
+        // Only show a toast when Focus is currently active.
+        guard manager.isDoNotDisturbActive else { return }
+
+        // Only relevant for the non-persistent (brief toast) mode.
+        guard focusToastMode else { return }
+
+        // Cancel any pending collapse so the new mode can animate in cleanly.
+        cancelPendingTasks()
+
+        // Force a clean collapsed baseline before animating ON for the *new* mode.
+        // Without this, a mode switch can appear to start then cancel.
+        withAnimation(.none) {
+            showInactiveIcon = false
+            isExpanded = false
+            iconScale = 1.0
+        }
+
+        // Run the expansion on the next runloop tick so the reset takes effect first.
+        DispatchQueue.main.async {
+            guard manager.isDoNotDisturbActive else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                iconScale = 1.0
+                isExpanded = true
+            }
+            scheduleTransientCollapse()
+        }
+    }
+
+    /// When the user toggles between toast / persistent mode while focus is active,
+    /// re-expand the view so the wings become visible again.
+    private func handleToastModeSettingChange(_ oldValue: Bool, _ newToastMode: Bool) {
+        guard manager.isDoNotDisturbActive else { return }
+
+        cancelPendingTasks()
+
+        if newToastMode {
+            // Switched TO toast mode — show a brief expansion then collapse.
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                isExpanded = true
+                showInactiveIcon = false
+                iconScale = 1.0
+            }
+            scheduleTransientCollapse()
+        } else {
+            // Switched TO persistent mode — ensure wings are expanded.
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                isExpanded = true
+                showInactiveIcon = false
+                iconScale = 1.0
+            }
+        }
+    }
+
+    private func triggerInactiveAnimation() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+            isExpanded = true
+        }
+        withAnimation(.smooth(duration: 0.2)) {
+            showInactiveIcon = true
+        }
+
+        if focusToastMode {
+            iconScale = 1.0
+            scaleResetTask?.cancel()
+        } else {
+            withAnimation(.interpolatingSpring(stiffness: 220, damping: 12)) {
+                iconScale = 1.2
+            }
+
+            scaleResetTask?.cancel()
+            scaleResetTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(450))
+                withAnimation(.interpolatingSpring(stiffness: 180, damping: 18)) {
+                    iconScale = 1.0
+                }
+                withAnimation(.smooth(duration: 0.2)) {
+                    showInactiveIcon = false
+                }
+            }
+        }
+
+        collapseTask?.cancel()
+        collapseTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(focusToastMode ? ToastTiming.inactiveDisplay : 320))
+            withAnimation(.smooth(duration: 0.32)) {
+                isExpanded = false
+                if focusToastMode {
+                    showInactiveIcon = false
+                }
+            }
+        }
+
+        cleanupTask?.cancel()
+        guard !focusToastMode else { return }
+        cleanupTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(650))
+            withAnimation(.smooth(duration: 0.2)) {
+                showInactiveIcon = false
+            }
+        }
+    }
+
+    private func scheduleTransientCollapse() {
+        collapseTask?.cancel()
+        cleanupTask?.cancel()
+
+        collapseTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(ToastTiming.activeDisplay))
+            withAnimation(.smooth(duration: 0.32)) {
+                isExpanded = false
+                showInactiveIcon = false
+            }
+        }
+    }
+
+    private func cancelPendingTasks() {
+        scaleResetTask?.cancel()
+        collapseTask?.cancel()
+        cleanupTask?.cancel()
+        scaleResetTask = nil
+        collapseTask = nil
+        cleanupTask = nil
+    }
+}
+
+#Preview {
+    DoNotDisturbLiveActivity()
+        .environmentObject(DynamicIslandViewModel())
+        .frame(width: 320, height: 54)
+        .background(Color.black)
+}
+
+private final class SymbolAvailabilityCache {
+    static let shared = SymbolAvailabilityCache()
+    private var cache: [String: Bool] = [:]
+    private let lock = NSLock()
+
+    func isSymbolAvailable(_ name: String) -> Bool {
+        lock.lock()
+        if let cached = cache[name] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
+        #if canImport(AppKit)
+        let available = NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
+        #else
+        let available = false
+        #endif
+
+        lock.lock()
+        cache[name] = available
+        lock.unlock()
+        return available
+    }
+}
