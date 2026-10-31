@@ -19,7 +19,7 @@
 
 Luoto turns the notch of a MacBook into a small place for your clipboard, your screenshots and your music. It is a fork of [Atoll](https://github.com/Ebullioscopic/Atoll).
 
-The numbers above are average CPU use of the Luoto process, measured with `top` on a MacBook with the charger plugged in. To measure it yourself, start Luoto and run [`scripts/perf/measure.sh`](scripts/perf/measure.sh) with a label (`idle`, `music`, `mouse`) and a length in seconds (3 minutes at most):
+The numbers above are average CPU use of the Luoto process, measured with `top` on a MacBook. Idle means no keyboard or mouse input on the Mac; typing in other apps was not measured. The music number leaves out the small helper (a `perl` process) that reads Now Playing and runs only while sound is playing. To measure it yourself, start Luoto and run [`scripts/perf/measure.sh`](scripts/perf/measure.sh) with a label (`idle`, `music`, `mouse`) and a length in seconds (3 minutes at most):
 
 ```bash
 scripts/perf/measure.sh idle 120
@@ -31,7 +31,7 @@ scripts/perf/measure.sh idle 120
 
 **Clipboard history.** Everything you copy becomes a card, with search, filters and pins. Paste again in one click.
 
-**Now playing.** Artwork, title and transport controls from Spotify, Music or a browser tab. Shuffle, repeat, volume, output and lyrics show while the pointer is over the player. **Next** shows your upcoming events beside it. A video without track details never takes the player over. Swipe the closed notch to change tracks.
+**Now playing.** Artwork, title and transport controls from Spotify, Music or a browser tab. Shuffle, repeat, volume, output and lyrics show while the pointer is over the player. **Next** shows your upcoming events beside it. A short video (under 5 minutes) without track details does not take the player over. Swipe the closed notch to change tracks.
 
 **Also in the notch**
 - Volume, brightness and keyboard backlight indicators in place of the system ones.
@@ -63,7 +63,7 @@ Requirements: **macOS 14.6+, tested on 26.** A Mac with Apple silicon (M1 or new
 
 ### The first launch: Open Anyway
 
-Luoto is **not notarized**. Notarization needs Apple's paid developer account, and Luoto is free. So macOS says it cannot verify the app and blocks it the first time. This happens once. To open it:
+Luoto is **not notarized**. Notarization needs Apple's paid developer account, and Luoto is free. So macOS says it cannot verify the app and blocks it the first time. This happens once for each copy you download. To open it:
 
 1. Try to open Luoto, then close the warning.
 2. Open **System Settings → Privacy & Security** and scroll down to the Security section.
@@ -113,6 +113,7 @@ tccutil reset All io.github.amidamaru940.luoto
 
 | Feature | What leaves your Mac, and where |
 |---|---|
+| Spotify and YouTube Music covers | once you let Luoto control Spotify (Automation) or choose YouTube Music as the source, the cover picture is downloaded from the address the player gives. That server sees your IP address. There is no separate switch |
 | Lock screen weather | approximate location or your IP address → wttr.in, open-meteo.com |
 | Lyrics | track title and artist → lrclib.net, music.163.com |
 | Explicit badges and artist names | track title and artist → itunes.apple.com; track id → open.spotify.com |
@@ -123,9 +124,9 @@ tccutil reset All io.github.amidamaru940.luoto
 | LocalSend | listens on your **local network** (TCP 53317, plus multicast) while it is on, not only on 127.0.0.1 |
 | Extensions | a port on 127.0.0.1 for other apps on this Mac |
 
-Cider and YouTube Music controls talk to those players on this Mac (localhost) only.
+Cider and YouTube Music controls talk to those players on this Mac (localhost). Covers are the exception, as the table says.
 
-Every address in the source is in [`tests/network_allowlist.txt`](tests/network_allowlist.txt), with the feature and the setting that turns it on. The test [`tests/test_network_allowlist.py`](tests/test_network_allowlist.py) fails if a new address appears without an entry. Run it with `python3 -m unittest discover tests -p test_network_allowlist.py`.
+Every address in the source is in [`tests/network_allowlist.txt`](tests/network_allowlist.txt), with the feature and the setting that turns it on. The test [`tests/test_network_allowlist.py`](tests/test_network_allowlist.py) fails if a new address appears without an entry. Cover addresses come from the players while Luoto runs, so they are not in that list. Run it with `python3 -m unittest discover tests -p test_network_allowlist.py`.
 
 ## Privacy
 
@@ -138,7 +139,7 @@ Every address in the source is in [`tests/network_allowlist.txt`](tests/network_
 
 **Why "Open Anyway"?** Luoto is not notarized: that needs Apple's paid account. The app is signed, the source is here, and the SHA-256 lets you check the download. See [SECURITY.md](SECURITY.md).
 
-**Why Accessibility?** To press ⌘V in the app you were working in (one-click paste), and to catch the volume and brightness keys for Luoto's own indicators. Luoto does not read your screen or your typing for that. Without it, paste copies and you press ⌘V yourself.
+**Why Accessibility?** To press ⌘V in the app you were working in (one-click paste), and to catch the volume and brightness keys for Luoto's own indicators. The same access also lets Luoto read a few things from other apps: where the front app's menu titles sit (so the island fits beside them), whether a window is in full screen, the Clock timer in the menu bar, and Tidal's menus if Tidal is your source. With this access Luoto does not read what is on your screen or record what you type. While idle, its clipboard check waits for the next key or pointer event, and it ignores which key that was. Without it, paste copies and you press ⌘V yourself.
 
 **Does it drain the battery?** See the numbers at the top and measure on your own Mac with `scripts/perf/measure.sh`. The waveform, per-app volume, stats, download detection and the usage monitor run only when you turn them on.
 
@@ -157,7 +158,7 @@ Every address in the source is in [`tests/network_allowlist.txt`](tests/network_
    - the temporary folder `Luoto clipboard screenshots` inside `$TMPDIR` (`open "$TMPDIR"` shows it)
 4. If you signed in to Spotify or Cider, or entered API keys, open Keychain Access, search for `luoto` and for `Atoll`, and delete what they find. Spotify, Cider and usage-monitor items keep the name of the app Luoto was forked from.
 
-**How is it different from Atoll?** Luoto is a fork of Atoll at one commit (see [NOTICE](NOTICE)). Changes: nothing asks for a permission at launch; every network feature is off by default and listed in a test; updates only if you say yes, from this project's releases; clipboard history in memory by default; screenshot batches. Removed: everything bundled without a known source or licence (the AirPods and Beats videos, idle animations, some sounds and pictures), the camera mirror, and the old update channels.
+**How is it different from Atoll?** Luoto is a fork of Atoll at one commit (see [NOTICE](NOTICE)). Changes: nothing asks for a permission at launch; every network feature is off by default and listed in a test; updates only if you say yes, from this project's releases; clipboard history in memory by default; screenshot batches. Removed: everything bundled without a known source or licence (the AirPods and Beats videos, idle animations, some sounds and pictures), the camera mirror, and the old update channels. Service logos stay in the app as their owners' trademarks: see [TRADEMARKS](TRADEMARKS).
 
 **And boring.notch, Droppy?** Atoll builds on boring.notch, and so does Luoto. This README does not compare Luoto with Droppy or measure other apps.
 

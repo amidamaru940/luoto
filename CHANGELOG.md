@@ -11,7 +11,7 @@ before the fork, see [Atoll's changelog](https://github.com/Ebullioscopic/Atoll/
 - **New name: Luoto.** A fresh start with a new app identity, so settings from earlier versions do not carry over.
 - **Nothing asks for a permission at launch.** Each one is asked when you turn on the feature that needs it, or the first time you use it.
 - **Updates, if you want them.** Onboarding asks once. Say yes and Luoto asks GitHub once a day; say no and nothing goes to the network. Nothing installs without you, and you can check by hand at any time.
-- **Accessibility stays on after an update**, because every release is signed with the same certificate. If macOS loses it anyway, Settings offers to restore it.
+- **Accessibility should stay on after an update**, because every release is signed with the same certificate. Replacing the app with a newer copy kept it in testing; the first real in-app update comes with the next release. If macOS loses it anyway, Settings offers to restore it.
 - **Sounds are macOS system sounds** instead of bundled files.
 - The switches for download detection, the Bluetooth battery on the lock screen, reminders and the calendar event on the lock screen start off, because they need a permission.
 

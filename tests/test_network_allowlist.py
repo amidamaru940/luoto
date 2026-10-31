@@ -49,6 +49,17 @@ def allowlist_entries():
 
 
 class NetworkAllowlistTests(unittest.TestCase):
+    def test_downloads_from_addresses_given_at_run_time_are_documented(self):
+        # These addresses never appear as literals, so the allowlist cannot see them.
+        callers = {
+            path.name
+            for path in SOURCES.rglob("*.swift")
+            if "ImageService.shared.fetchImageData" in path.read_text(errors="ignore")
+        }
+        self.assertEqual(callers, {"SpotifyController.swift", "YouTubeMusicController.swift"})
+        self.assertIn("Spotify and YouTube Music covers", (ROOT / "README.md").read_text())
+        self.assertIn("Обложки Spotify и YouTube Music", (ROOT / "README.ru.md").read_text())
+
     def test_every_source_url_is_allowlisted(self):
         allowed = allowlist_entries()
         missing = {url: places for url, places in source_urls().items() if url not in allowed}
