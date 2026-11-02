@@ -53,7 +53,8 @@ enum LidGuardConfig {
     static let futureTolerance: TimeInterval = 5
 
     /// On battery, at or below this, the session ends. macOS does not do it for
-    /// us: with sleep disabled the kernel skips its own low-battery sleep.
+    /// us: going by the xnu source, not a test, with sleep disabled the kernel
+    /// skips its own low-battery sleep.
     static let batteryFloor = 20
     /// What the user can choose. There is no "never": nothing else would stop the
     /// Mac before it died with work in memory. The choice reaches the helper as the
