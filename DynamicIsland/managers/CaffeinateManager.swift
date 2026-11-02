@@ -26,8 +26,9 @@ import SwiftUI
 /// does, by holding an IOKit power assertion.
 ///
 /// The assertion is held by this process, so it is released automatically if
-/// Atoll exits for any reason -- there is no way to leave the Mac permanently
-/// caffeinated by crashing.
+/// Luoto exits for any reason. "With the lid closed" is not an assertion: the root
+/// helper holds that, and ends it when the app stops renewing its lease
+/// (LidAwakeController).
 @MainActor
 final class CaffeinateManager: ObservableObject {
     static let shared = CaffeinateManager()
@@ -47,6 +48,7 @@ final class CaffeinateManager: ObservableObject {
     @Published private(set) var activeDuration: CaffeinateDuration?
 
     private var assertionID: IOPMAssertionID = IOPMAssertionID(0)
+    private var displayLetGo = false
     private var ticker: AnyCancellable?
     private var featureCancellable: AnyCancellable?
 
@@ -74,41 +76,34 @@ final class CaffeinateManager: ObservableObject {
     /// Starts a session, replacing any session already running.
     ///
     /// Re-asserting is how a duration change is applied: the old assertion is
-    /// released first so the two never stack.
+    /// released first so the two never stack. The lid-closed helper stays on
+    /// through that, so a new duration does not switch it off and on.
     /// Returns false when macOS refused, so the panel can say so.
     @discardableResult
     func activate(for duration: CaffeinateDuration) -> Bool {
-        deactivate()
+        resetSession()
 
-        guard Defaults[.enableCaffeinate] else { return false }
-
-        let type = Defaults[.caffeinateKeepsDisplayAwake]
-            ? kIOPMAssertionTypeNoDisplaySleep
-            : kIOPMAssertionTypePreventUserIdleSystemSleep
-
-        var id = IOPMAssertionID(0)
-        let result = IOPMAssertionCreateWithName(
-            type as CFString,
-            IOPMAssertionLevel(kIOPMAssertionLevelOn),
-            Self.assertionReason as CFString,
-            &id
-        )
-
-        guard result == kIOReturnSuccess else {
-            NSLog("[Caffeinate] IOPMAssertionCreateWithName failed: \(result)")
+        guard Defaults[.enableCaffeinate], takeAssertion() else {
+            LidAwakeController.shared.sessionDidEnd()
             return false
         }
 
-        assertionID = id
         isActive = true
         activeDuration = duration
         expiresAt = Self.expiry(from: Date(), duration: duration)
         startTicking()
+        LidAwakeController.shared.sessionDidStart()
         return true
     }
 
     /// Releases the assertion, if one is held. Safe to call when idle.
     func deactivate() {
+        resetSession()
+        displayLetGo = false
+        LidAwakeController.shared.sessionDidEnd()
+    }
+
+    private func resetSession() {
         if assertionID != IOPMAssertionID(0) {
             IOPMAssertionRelease(assertionID)
             assertionID = IOPMAssertionID(0)
@@ -120,6 +115,51 @@ final class CaffeinateManager: ObservableObject {
         expiresAt = nil
         remainingTime = nil
         activeDuration = nil
+    }
+
+    /// Wakes a display that stayed dark after the lid opened.
+    func declareUserActivity() {
+        var id = IOPMAssertionID(0)
+        if IOPMAssertionDeclareUserActivity(Self.assertionReason as CFString, kIOPMUserActiveLocal, &id) == kIOReturnSuccess {
+            IOPMAssertionRelease(id)
+        }
+    }
+
+    private func takeAssertion() -> Bool {
+        var id = IOPMAssertionID(0)
+        let result = IOPMAssertionCreateWithName(
+            Self.assertionType(keepsDisplayAwake: Defaults[.caffeinateKeepsDisplayAwake], displayLetGo: displayLetGo) as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            Self.assertionReason as CFString,
+            &id
+        )
+
+        guard result == kIOReturnSuccess else {
+            NSLog("[Caffeinate] IOPMAssertionCreateWithName failed: \(result)")
+            return false
+        }
+
+        assertionID = id
+        return true
+    }
+
+    /// With the lid closed the display must be free to sleep while the session
+    /// goes on. The new assertion comes first, so the Mac is never without one.
+    /// Returns false when macOS refused, so the caller knows to try again.
+    @discardableResult
+    func letDisplaySleep(_ letGo: Bool) -> Bool {
+        guard isActive, displayLetGo != letGo else {
+            if !isActive { displayLetGo = false }
+            return true
+        }
+        displayLetGo = letGo
+        let previous = assertionID
+        guard takeAssertion() else {
+            displayLetGo = !letGo
+            return false
+        }
+        if previous != IOPMAssertionID(0) { IOPMAssertionRelease(previous) }
+        return true
     }
 
     /// Starts the configured default duration, or stops a running session.
@@ -156,6 +196,11 @@ final class CaffeinateManager: ObservableObject {
     // MARK: - Pure helpers
 
     private static let assertionReason = "Luoto is keeping this Mac awake"
+
+    /// A display the lid has closed on is never held on, whatever the setting.
+    nonisolated static func assertionType(keepsDisplayAwake: Bool, displayLetGo: Bool) -> String {
+        keepsDisplayAwake && !displayLetGo ? kIOPMAssertionTypeNoDisplaySleep : kIOPMAssertionTypePreventUserIdleSystemSleep
+    }
 
     /// The moment a session started at `start` should end, or `nil` when the
     /// session never expires on its own.

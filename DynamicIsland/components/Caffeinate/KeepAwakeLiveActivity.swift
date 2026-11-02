@@ -25,9 +25,29 @@ import SwiftUI
 struct KeepAwakeLiveActivity: View {
     @EnvironmentObject var vm: DynamicIslandViewModel
     @ObservedObject private var caffeinate = CaffeinateManager.shared
+    @ObservedObject private var lid = LidAwakeController.shared
 
     static func label(remaining: TimeInterval?) -> String {
         remaining.map(CaffeinateManager.remainingLabel) ?? "∞"
+    }
+
+    /// The cup, a laptop once it is safe to close the lid, a warning when that
+    /// has stopped being true: visible without opening the island.
+    static func symbol(phase: LidAwakePhase) -> String {
+        switch phase {
+        case .idle, .arming: return "cup.and.saucer.fill"
+        case .ready, .foreign: return "laptopcomputer"
+        case .stopped, .helperOff, .failed, .helperSilent: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    /// Said after the time left, when the symbol says more than the cup.
+    static func spokenPhase(_ phase: LidAwakePhase) -> String? {
+        switch phase {
+        case .idle, .arming: return nil
+        case .ready, .foreign: return LidAwakeCopy.canClose
+        case .stopped, .helperOff, .failed, .helperSilent: return LidAwakeCopy.needsAttention
+        }
     }
 
     /// Wide enough for the label in 12 pt monospaced digits.
@@ -55,7 +75,7 @@ struct KeepAwakeLiveActivity: View {
         let label = Self.label(remaining: caffeinate.remainingTime)
         let wing = Self.wingWidth(for: label)
         HStack(spacing: 0) {
-            Image(systemName: "cup.and.saucer.fill")
+            Image(systemName: Self.symbol(phase: lid.phase))
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(DS.Palette.attention)
                 .frame(width: wing, alignment: .leading)
@@ -73,6 +93,6 @@ struct KeepAwakeLiveActivity: View {
         .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Keep Awake"))
-        .accessibilityValue(Text(label))
+        .accessibilityValue(Text(Self.spokenPhase(lid.phase).map { "\(label), \($0)" } ?? label))
     }
 }

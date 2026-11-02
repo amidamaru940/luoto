@@ -47,6 +47,11 @@ pkill -f "mediaremote-adapter.pl" 2>/dev/null || true
 pkill -f "com.apple.mobiletimer.logging" 2>/dev/null || true
 pkill -f "LsnM" 2>/dev/null || true
 
+# The lid-closed helper removes itself when asked, with no password.
+if [[ -w "/Library/Application Support/Luoto/session" ]]; then
+  : > "/Library/Application Support/Luoto/session/uninstall"
+fi
+
 echo "3/4 Удаляю всё старое…"
 for app in "/Applications/Luoto.app"; do
   [[ -e "$app" ]] || continue

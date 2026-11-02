@@ -302,6 +302,7 @@ struct MoreMenuRow: View {
 struct IslandStatusCapsule: View {
     var onKeepAwakeTap: () -> Void = {}
     @ObservedObject private var caffeinate = CaffeinateManager.shared
+    @ObservedObject private var lid = LidAwakeController.shared
     @ObservedObject private var battery = BatteryStatusViewModel.shared
     @ObservedObject private var doNotDisturb = DoNotDisturbManager.shared
     @ObservedObject private var recording = ScreenRecordingManager.shared
@@ -359,7 +360,7 @@ struct IslandStatusCapsule: View {
                 .accessibilityLabel(Text("Screen recording"))
         case .keepAwake(let remaining):
             HStack(spacing: 4) {
-                Image(systemName: "cup.and.saucer.fill")
+                Image(systemName: KeepAwakeLiveActivity.symbol(phase: lid.phase))
                     .font(DSE.Typeface.glyphOpen)
                 if let remaining {
                     Text(CaffeinateManager.remainingLabel(remaining))

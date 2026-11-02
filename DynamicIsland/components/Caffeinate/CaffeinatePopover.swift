@@ -78,6 +78,10 @@ struct CaffeinatePopover: View {
             .padding(2)
             .background(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous).fill(DS.Palette.card))
 
+            if PowerRootDomain.hasLid {
+                LidAwakeRow()
+            }
+
             if failed {
                 Label("macOS did not allow it. Try again.", systemImage: "exclamationmark.triangle")
                     .font(DS.Typeface.caption)

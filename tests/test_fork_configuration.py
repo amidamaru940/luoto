@@ -111,7 +111,8 @@ class ForkConfigurationTests(unittest.TestCase):
         signing = (ROOT / "Config" / "Signing.xcconfig").read_text()
 
         self.assertEqual(2, len(configs))  # Debug and Release
-        self.assertEqual(2, project.count("baseConfigurationReference = 5CE2A1F0B7C94E3DA0F11A01 /* Signing.xcconfig */;"))
+        # Debug and Release of the app and of the lid-closed helper.
+        self.assertEqual(4, project.count("baseConfigurationReference = 5CE2A1F0B7C94E3DA0F11A01 /* Signing.xcconfig */;"))
         for config in configs:
             self.assertIn("CODE_SIGN_STYLE = Automatic;", config)
             self.assertIn("ENABLE_HARDENED_RUNTIME = YES;", config)

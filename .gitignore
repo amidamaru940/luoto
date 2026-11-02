@@ -143,6 +143,7 @@ referenceimages
 !tests/test_fork_configuration.py
 !tests/test_network_allowlist.py
 !tests/test_localization.py
+!tests/test_lid_awake.py
 !tests/test_permission_prompts.py
 !tests/test_energy.py
 !tests/test_window_hosting.py
@@ -178,6 +179,7 @@ Config/Local.xcconfig
 # The release script is part of the project (the rule above ignores *.sh).
 !scripts/make-release.sh
 !scripts/reinstall-clean.sh
+!scripts/check-lid-guard-launchd.sh
 # So are the energy measurement and bisect scripts, and their results.
 !scripts/perf/*.sh
 !docs/perf/*.txt
@@ -209,5 +211,3 @@ tests/fixtures/private/
 *.db
 *.keychain*
 
-# Claude Code agent memory (local notes of review and measurement agents)
-.claude/test-logs/

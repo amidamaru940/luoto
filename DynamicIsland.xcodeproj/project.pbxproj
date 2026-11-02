@@ -84,6 +84,7 @@
 		49014C9FABE16CB477BF5875 /* LaunchRecoveryGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 017F28DED565C9492BEB067B /* LaunchRecoveryGateTests.swift */; };
 		5980B9C33639016DEBF20816 /* VisualETests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2CDDDCDEF0B14D3F470D63 /* VisualETests.swift */; };
 		F910B9C812C7AEFE2293F7D2 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 47C39E67B09152F6665ED683 /* Cocoa.framework */; };
+		A1D06A0D2F90000000000003 /* io.github.amidamaru940.luoto.lidguard in CopyFiles */ = {isa = PBXBuildFile; fileRef = A1D06A0D2F90000000000002 /* io.github.amidamaru940.luoto.lidguard */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -93,6 +94,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = F54406E62CD4987A00C7AFD9;
 			remoteInfo = DynamicIsland;
+		};
+		A1D06A0D2F90000000000006 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F54406DF2CD4987A00C7AFD9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1D06A0D2F90000000000001;
+			remoteInfo = LidGuard;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -104,6 +112,7 @@
 			dstSubfolderSpec = 1;
 			files = (
 				F3E4D5C6B7A8E9F0A1B2C3D4 /* Contents/Helpers/NowPlayingTestClient in CopyFiles */,
+				A1D06A0D2F90000000000003 /* io.github.amidamaru940.luoto.lidguard in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -184,6 +193,7 @@
 		139F61407EC46E1897E90F31 /* ScreenAssistantKeyMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenAssistantKeyMigrationTests.swift; sourceTree = "<group>"; };
 		017F28DED565C9492BEB067B /* LaunchRecoveryGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchRecoveryGateTests.swift; sourceTree = "<group>"; };
 		9C2CDDDCDEF0B14D3F470D63 /* VisualETests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualETests.swift; sourceTree = "<group>"; };
+		A1D06A0D2F90000000000002 /* io.github.amidamaru940.luoto.lidguard */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = io.github.amidamaru940.luoto.lidguard; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -198,6 +208,13 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+			);
+			target = F54406E62CD4987A00C7AFD9 /* DynamicIsland */;
+		};
+		A1D06A0D2F90000000000005 /* Exceptions for "LidGuard" folder in "DynamicIsland" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				main.swift,
 			);
 			target = F54406E62CD4987A00C7AFD9 /* DynamicIsland */;
 		};
@@ -218,6 +235,14 @@
 				7EA69B212F5B100000EB2D16 /* Exceptions for "DynamicIsland" folder in "DynamicIsland" target */,
 			);
 			path = DynamicIsland;
+			sourceTree = "<group>";
+		};
+		A1D06A0D2F90000000000004 /* LidGuard */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A1D06A0D2F90000000000005 /* Exceptions for "LidGuard" folder in "DynamicIsland" target */,
+			);
+			path = LidGuard;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -257,6 +282,13 @@
 				7E6118152E24071E0050006C /* Sparkle in Frameworks */,
 				7E288D122F1659EF0020C117 /* AtollExtensionKit in Frameworks */,
 				7E6118142E24071E0050006C /* LaunchAtLogin in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1D06A0D2F90000000000009 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -392,6 +424,7 @@
 				7E81304F2E3FB42700E08F3F /* Frameworks */,
 				7E81303F2E3FB40500E08F3F /* mediaremote-adapter */,
 				F54406E92CD4987A00C7AFD9 /* DynamicIsland */,
+				A1D06A0D2F90000000000004 /* LidGuard */,
 				F54406E82CD4987A00C7AFD9 /* Products */,
 				BF9102C8771E45168EF97D18 /* DynamicIslandUITests */,
 				50983E4A1FCC1F5E2220FF8A /* DynamicIslandTests */,
@@ -405,6 +438,7 @@
 				F54406E72CD4987A00C7AFD9 /* Luoto.app */,
 				A058D80A7EF44593B0F24EB7 /* DynamicIslandUITests.xctest */,
 				0796C681D7B557C0110EC381 /* DynamicIslandTests.xctest */,
+				A1D06A0D2F90000000000002 /* io.github.amidamaru940.luoto.lidguard */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -460,10 +494,12 @@
 			buildRules = (
 			);
 			dependencies = (
+				A1D06A0D2F90000000000007 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				7EA69B1C2F5AE15C00EB2D16 /* Contents */,
 				F54406E92CD4987A00C7AFD9 /* DynamicIsland */,
+				A1D06A0D2F90000000000004 /* LidGuard */,
 			);
 			name = DynamicIsland;
 			packageProductDependencies = (
@@ -482,6 +518,25 @@
 			productName = DynamicIsland;
 			productReference = F54406E72CD4987A00C7AFD9 /* Luoto.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A1D06A0D2F90000000000001 /* LidGuard */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1D06A0D2F9000000000000A /* Build configuration list for PBXNativeTarget "LidGuard" */;
+			buildPhases = (
+				A1D06A0D2F90000000000008 /* Sources */,
+				A1D06A0D2F90000000000009 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A1D06A0D2F90000000000004 /* LidGuard */,
+			);
+			name = LidGuard;
+			productName = LidGuard;
+			productReference = A1D06A0D2F90000000000002 /* io.github.amidamaru940.luoto.lidguard */;
+			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -534,6 +589,7 @@
 				F54406E62CD4987A00C7AFD9 /* DynamicIsland */,
 				9CA407B492164F5AEF356E38 /* DynamicIslandUITests */,
 				0BED81992D1F2C18E8684884 /* DynamicIslandTests */,
+				A1D06A0D2F90000000000001 /* LidGuard */,
 			);
 		};
 /* End PBXProject section */
@@ -665,6 +721,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1D06A0D2F90000000000008 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -673,6 +736,12 @@
 			name = DynamicIsland;
 			target = F54406E62CD4987A00C7AFD9 /* DynamicIsland */;
 			targetProxy = D9AAA842E7A7289EDDEAE9BB /* PBXContainerItemProxy */;
+		};
+		A1D06A0D2F90000000000007 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = LidGuard;
+			target = A1D06A0D2F90000000000001 /* LidGuard */;
+			targetProxy = A1D06A0D2F90000000000006 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -901,7 +970,7 @@
 				CODE_SIGN_ENTITLEMENTS = DynamicIsland/DynamicIsland.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 10200;
+				CURRENT_PROJECT_VERSION = 10300;
 				DEVELOPMENT_ASSET_PATHS = "\"DynamicIsland/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -939,7 +1008,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
-				MARKETING_VERSION = 1.2.0;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.amidamaru940.luoto.dev;
 				PRODUCT_MODULE_NAME = Atoll;
 				PRODUCT_NAME = "Luoto";
@@ -973,7 +1042,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 10200;
+				CURRENT_PROJECT_VERSION = 10300;
 				DEVELOPMENT_ASSET_PATHS = "\"DynamicIsland/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1011,7 +1080,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
-				MARKETING_VERSION = 1.2.0;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.amidamaru940.luoto;
 				PRODUCT_MODULE_NAME = Atoll;
 				PRODUCT_NAME = "Luoto";
@@ -1029,6 +1098,39 @@
 					"$(SDKROOT)/System/Library/Frameworks",
 					"$(SDKROOT)/System/Library/PrivateFrameworks",
 				);
+			};
+			name = Release;
+		};
+		A1D06A0D2F9000000000000B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5CE2A1F0B7C94E3DA0F11A01 /* Signing.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.6;
+				OTHER_CODE_SIGN_FLAGS = "--identifier io.github.amidamaru940.luoto.lidguard";
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.amidamaru940.luoto.lidguard;
+				PRODUCT_MODULE_NAME = LidGuard;
+				PRODUCT_NAME = io.github.amidamaru940.luoto.lidguard;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A1D06A0D2F9000000000000C /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5CE2A1F0B7C94E3DA0F11A01 /* Signing.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.6;
+				OTHER_CODE_SIGN_FLAGS = "--identifier io.github.amidamaru940.luoto.lidguard";
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.amidamaru940.luoto.lidguard;
+				PRODUCT_MODULE_NAME = LidGuard;
+				PRODUCT_NAME = io.github.amidamaru940.luoto.lidguard;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
 		};
@@ -1067,6 +1169,15 @@
 			buildConfigurations = (
 				F54406F72CD4987B00C7AFD9 /* Debug */,
 				F54406F82CD4987B00C7AFD9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1D06A0D2F9000000000000A /* Build configuration list for PBXNativeTarget "LidGuard" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1D06A0D2F9000000000000B /* Debug */,
+				A1D06A0D2F9000000000000C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

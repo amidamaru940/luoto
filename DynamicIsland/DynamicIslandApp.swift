@@ -23,6 +23,9 @@ import KeyboardShortcuts
 import Sparkle
 import SwiftUI
 import SkyLightWindow
+import os
+
+private let screenLog = os.Logger(subsystem: "io.github.amidamaru940.luoto", category: "screens")
 
 @main
 struct DynamicNotchApp: App {
@@ -278,6 +281,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Temporary clipboard screenshots do not outlive the app.
         TemporaryClipboardShots.removeAll()
+        // The helper ends the session straight away, not a minute later.
+        LidAwakeController.shared.appWillTerminate()
+        AdapterProcesses.stopAll()
         let userInfo: [String: Any] = [
             AtollDistributedNotifications.UserInfoKey.sourcePID: NSNumber(value: ProcessInfo.processInfo.processIdentifier)
         ]
@@ -710,12 +716,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if AppRuntimeEnvironment.mayAskForPermissions {
+            ChildProcessEnvironment.removeInjectionVariablesFromThisProcess()
+        }
+        LidAwakeController.shared.appDidLaunch()
         // A Luoto that crashed or was force-quit may have left system processes
         // frozen: the volume/brightness HUD (OSDUIHelper) and, with the lock-screen
         // artwork shown, the wallpaper renderers and a rewritten wallpaper. Undone first,
         // unless this is the test host or another Luoto is running: that one froze
         // them on purpose (LaunchRecoveryGate).
         if LaunchRecoveryGate.recoversAtThisLaunch {
+            AdapterProcesses.clearOrphans()
             ProcessSignals.continueProcesses(named: ["OSDUIHelper"])
             DispatchQueue.global(qos: .utility).async {
                 FullScreenArtworkWindowManager.recoverAfterUncleanExit()
@@ -1125,11 +1136,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.cleanupWindows(shouldInvert: true)
 
             if !Defaults[.showOnAllDisplays] {
-                let viewModel = self.vm
-                let window = self.createDynamicIslandWindow(
-                    for: NSScreen.main ?? NSScreen.screens.first!, with: viewModel)
-                self.window = window
-                self.adjustWindowPosition(changeAlpha: true)
+                // No screen at all with the lid closed: the window comes when
+                // one is back, through screenConfigurationDidChange.
+                if let screen = NSScreen.main ?? NSScreen.screens.first {
+                    let viewModel = self.vm
+                    let window = self.createDynamicIslandWindow(for: screen, with: viewModel)
+                    self.window = window
+                    self.adjustWindowPosition(changeAlpha: true)
+                }
             } else {
                 self.adjustWindowPosition()
             }
@@ -1196,11 +1210,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         updateFeatureShortcutAvailability()
 
         if !Defaults[.showOnAllDisplays] {
-            let viewModel = self.vm
-            let window = createDynamicIslandWindow(
-                for: NSScreen.main ?? NSScreen.screens.first!, with: viewModel)
-            self.window = window
-            adjustWindowPosition(changeAlpha: true)
+            // Started with the lid closed there may be no screen yet; see above.
+            if let screen = NSScreen.main ?? NSScreen.screens.first {
+                let viewModel = self.vm
+                let window = createDynamicIslandWindow(for: screen, with: viewModel)
+                self.window = window
+                adjustWindowPosition(changeAlpha: true)
+            }
         } else {
             adjustWindowPosition(changeAlpha: true)
         }
@@ -1700,8 +1716,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             || Set(currentScreens.map { $0.frame }) != Set(previousScreens?.map { $0.frame } ?? [])
 
         previousScreens = currentScreens
-        
+
         if screensChanged {
+            // With the lid closed this can reach zero, which no Mac saw before it
+            // could stay awake that way. The count only, no names.
+            screenLog.notice("screens online: \(currentScreens.count, privacy: .public)")
             DispatchQueue.main.async { [weak self] in
                 self?.cleanupWindows()
                 self?.adjustWindowPosition()

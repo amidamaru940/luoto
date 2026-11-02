@@ -1376,6 +1376,8 @@ extension Defaults.Keys {
     static let showCaffeinateIcon = Key<Bool>("showCaffeinateIcon", default: true)
     static let caffeinateDefaultDuration = Key<CaffeinateDuration>("caffeinateDefaultDuration", default: .indefinite)
     static let caffeinateKeepsDisplayAwake = Key<Bool>("caffeinateKeepsDisplayAwake", default: true)
+    static let caffeinateWithLidClosed = Key<Bool>("caffeinateWithLidClosed", default: false)
+    static let lidClosedBatteryFloor = Key<Int>("lidClosedBatteryFloor", default: LidGuardConfig.batteryFloor)
 
     // MARK: ColorPicker Feature
     static let enableColorPickerFeature = Key<Bool>("enableColorPickerFeature", default: true)

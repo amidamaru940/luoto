@@ -227,6 +227,7 @@ class FilteredNowPlayingController: ObservableObject, MediaControllerProtocol {
 
         do {
             try process.run()
+            AdapterProcesses.track(process)
             // Only the handler and a weak self: a task that awaited a method
             // of self kept the controller, and its perl process, for ever.
             // Weak on the task too, or it holds self strongly for the inner capture.

@@ -527,6 +527,7 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
             print("NowPlayingController: failed to launch mediaremote-adapter.pl: \(error)")
             return
         }
+        AdapterProcesses.track(process)
 
         self.process = process
         self.pipeHandler = pipeHandler

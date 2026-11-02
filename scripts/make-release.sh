@@ -20,6 +20,7 @@
 #   LUOTO_VERSION       another version than the VERSION file (a test release)
 #   LUOTO_FEED_URL      another update feed in the app (a test release)
 #   LUOTO_RELEASE_BASE  where the feed says the zip is (a test release)
+#   LUOTO_SIGN_ADHOC    sign ad-hoc even with the certificate here (a test build)
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -35,13 +36,15 @@ BUILD_NUMBER=$(( MAJOR * 10000 + MINOR * 100 + PATCH ))
 IDENTITY_NAME="Luoto Self-Signed"
 IDENTITIES="$(security find-identity -p codesigning 2>/dev/null || true)"
 IDENTITY="$(awk -v name="\"$IDENTITY_NAME\"" 'index($0, name) { print $2; exit }' <<< "$IDENTITIES")"
+# To check the path anyone without the certificate takes.
+[[ -z "${LUOTO_SIGN_ADHOC:-}" ]] || IDENTITY=""
 # A real release needs the real keys: an ad-hoc update would cost every user
 # their Accessibility permission.
 RELEASE_CERTIFICATE_SHA1="59D98C10BD5B2050E89F991B5E50C6593EC25064"
 if [[ -n "${LUOTO_RELEASE:-}" ]]; then
   [[ -n "$IDENTITY" ]] || { echo "LUOTO_RELEASE: the certificate \"$IDENTITY_NAME\" is not in the Keychain" >&2; exit 1; }
   [[ "$IDENTITY" == "$RELEASE_CERTIFICATE_SHA1" ]] || { echo "LUOTO_RELEASE: this is not the release certificate" >&2; exit 1; }
-  [[ -z "${LUOTO_VERSION:-}${LUOTO_FEED_URL:-}${LUOTO_RELEASE_BASE:-}" ]] || { echo "LUOTO_RELEASE: test settings are not for a real release" >&2; exit 1; }
+  [[ -z "${LUOTO_VERSION:-}${LUOTO_FEED_URL:-}${LUOTO_RELEASE_BASE:-}${LUOTO_SIGN_ADHOC:-}" ]] || { echo "LUOTO_RELEASE: test settings are not for a real release" >&2; exit 1; }
 fi
 APP_NAME="Luoto"
 DMG="$OUT/$APP_NAME-$VERSION.dmg"
@@ -91,6 +94,10 @@ FLAGS_BEFORE="$(codesign -dv "$APP" 2>&1 | grep -o 'flags=[^ ]*')"
 find "$SPARKLE" -name XPCServices -maxdepth 3 -exec rm -rf {} +
 [[ -z "$(find "$SPARKLE" -name XPCServices -maxdepth 3 2>/dev/null)" ]] || { echo "Sparkle XPC services must not ship" >&2; exit 1; }
 [[ -z "${LUOTO_FEED_URL:-}" ]] || plutil -replace SUFeedURL -string "$LUOTO_FEED_URL" "$APP/Contents/Info.plist"
+# The root helper is signed apart from the rest, with nothing kept: Xcode gives even
+# a command-line tool an application identifier, and root's helper needs no entitlement.
+LID_GUARD="$APP/Contents/Helpers/io.github.amidamaru940.luoto.lidguard"
+LID_GUARD_SIGN=(--force --options runtime --identifier io.github.amidamaru940.luoto.lidguard)
 if [[ -n "$IDENTITY" ]]; then
   # Inside out, the app last. No Apple timestamp: this certificate has no use
   # for that network call.
@@ -101,10 +108,12 @@ if [[ -n "$IDENTITY" ]]; then
   find "$APP/Contents" -depth \( -name '*.dylib' -o -name '*.framework' -o -name '*.xpc' -o -name '*.appex' -o -name '*.app' \) -print0 | while IFS= read -r -d '' item; do
     "${SIGN[@]}" "$item"
   done
+  codesign "${LID_GUARD_SIGN[@]}" --sign "$IDENTITY" --timestamp=none "$LID_GUARD"
   "${SIGN[@]}" "$APP"
   EXPECTED_FLAGS="flags=0x10000(runtime)"
   EXPECTED_SIGNATURE="Authority=$IDENTITY_NAME"
 else
+  codesign "${LID_GUARD_SIGN[@]}" --sign - "$LID_GUARD"
   codesign --force --sign - --options runtime --preserve-metadata=identifier,entitlements "$SPARKLE"
   codesign --force --sign - --options runtime --preserve-metadata=identifier,entitlements,requirements,flags "$APP"
   EXPECTED_FLAGS="$FLAGS_BEFORE"
@@ -120,6 +129,25 @@ SIGNATURE="$(codesign -dv --verbose=2 "$APP" 2>&1)"
 ENTITLEMENTS="$(codesign -d --entitlements :- "$APP" 2>/dev/null)"
 [[ "$ENTITLEMENTS" == *"com.apple.security.automation.apple-events"* ]] || { echo "Apple Events entitlement missing" >&2; exit 1; }
 [[ "$ENTITLEMENTS" != *"com.apple.security.device.camera"* ]] || { echo "The camera entitlement must not ship" >&2; exit 1; }
+
+# The root helper: its own identity, no entitlements, none of its debug-only test
+# hook, and macOS system libraries only, because root runs it.
+[[ -x "$LID_GUARD" ]] || { echo "The lid-closed helper is missing" >&2; exit 1; }
+LID_GUARD_SIGNATURE="$(codesign -dv --verbose=2 "$LID_GUARD" 2>&1)"
+grep -qx "Identifier=io.github.amidamaru940.luoto.lidguard" <<< "$LID_GUARD_SIGNATURE" || { echo "The helper has the wrong identifier" >&2; exit 1; }
+grep -Eq 'flags=0x[0-9a-f]+\([^)]*runtime' <<< "$LID_GUARD_SIGNATURE" || { echo "The helper lacks the hardened runtime" >&2; exit 1; }
+if [[ -n "$IDENTITY" ]]; then
+  # What the app will demand of it on every Mac, or everyone is told it is damaged.
+  [[ "$LID_GUARD_SIGNATURE" == *"$EXPECTED_SIGNATURE"* ]] || { echo "The helper is not signed like the app" >&2; exit 1; }
+  codesign --verify --strict -R="identifier \"io.github.amidamaru940.luoto.lidguard\" and certificate leaf = H\"$IDENTITY\"" "$LID_GUARD" \
+    || { echo "The helper does not meet the app's requirement" >&2; exit 1; }
+fi
+[[ -z "$(codesign -d --entitlements :- "$LID_GUARD" 2>/dev/null)" ]] || { echo "The helper must have no entitlements" >&2; exit 1; }
+# Short strings may be stored inline, where grep would not see them; this one is too long for that.
+if grep -qaF -- "running from a test root" "$LID_GUARD"; then echo "The helper still has its test hook" >&2; exit 1; fi
+if otool -L "$LID_GUARD" | tail -n +2 | grep -vE '^[[:space:]]*(/usr/lib/|/System/Library/)' | grep -q .; then
+  echo "The helper links something outside the system" >&2; exit 1
+fi
 
 # Nothing in the app may name the builder's home folder.
 if grep -rlaF "$HOME/" "$APP" >/dev/null; then

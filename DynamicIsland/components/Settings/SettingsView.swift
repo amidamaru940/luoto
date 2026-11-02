@@ -260,6 +260,7 @@ private enum SettingsSearchIndex {
         SettingsSearchEntry(tab: .general, title: "Show Keep Awake icon in the notch", keywords: ["caffeinate", "keep awake", "icon", "notch"], highlightID: SettingsTab.general.highlightID(for: "Show Keep Awake icon in the notch")),
         SettingsSearchEntry(tab: .general, title: "Default duration", keywords: ["caffeinate", "keep awake", "duration", "timeout"], highlightID: SettingsTab.general.highlightID(for: "Default duration")),
         SettingsSearchEntry(tab: .general, title: "Also keep the display awake", keywords: ["caffeinate", "keep awake", "display sleep", "screen"], highlightID: SettingsTab.general.highlightID(for: "Also keep the display awake")),
+        SettingsSearchEntry(tab: .general, title: "Keep awake with the lid closed", keywords: ["caffeinate", "keep awake", "lid", "clamshell", "closed", "laptop", "крышка"], highlightID: SettingsTab.general.highlightID(for: "Keep awake with the lid closed")),
         SettingsSearchEntry(tab: .general, title: "Enable gestures", keywords: ["gestures", "trackpad"], highlightID: SettingsTab.general.highlightID(for: "Enable gestures")),
         SettingsSearchEntry(tab: .general, title: "Close gesture", keywords: ["pinch", "swipe"], highlightID: SettingsTab.general.highlightID(for: "Close gesture")),
         SettingsSearchEntry(tab: .general, title: "Reverse swipe gestures", keywords: ["reverse", "swipe", "media"], highlightID: SettingsTab.general.highlightID(for: "Reverse swipe gestures")),
@@ -1401,10 +1402,20 @@ struct GeneralSettings: View {
                 }
                 .disabled(!enableCaffeinate)
                 .settingsHighlight(id: highlightID("Also keep the display awake"))
+
+                if PowerRootDomain.hasLid {
+                    LidAwakeSettingsRows(isFeatureOn: enableCaffeinate)
+                        .settingsHighlight(id: highlightID("Keep awake with the lid closed"))
+                }
             } header: {
                 Text("Keep Awake")
             } footer: {
-                Text("Holds a power assertion so the Mac will not sleep, the way the caffeinate command does. Turning this off also ends a session that is already running. With the display option off, the screen can still sleep while the system stays up.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Holds a power assertion so the Mac will not sleep, the way the caffeinate command does. Turning this off also ends a session that is already running. With the display option off, the screen can still sleep while the system stays up.")
+                    if PowerRootDomain.hasLid {
+                        Text(LidAwakeCopy.settingsFooter)
+                    }
+                }
             }
 
             Section {

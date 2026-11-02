@@ -33,9 +33,11 @@ scripts/perf/measure.sh idle 120
 
 **Now playing.** Artwork, title and transport controls from Spotify, Music or a browser tab. Shuffle, repeat, volume, output and lyrics show while the pointer is over the player. **Next** shows your upcoming events beside it. A short video (under 5 minutes) without track details does not take the player over. Swipe the closed notch to change tracks.
 
+**Keep working with the lid closed.** Turn on **With the lid closed** in Keep Awake, and builds, downloads and AI agents go on under a closed lid, on battery and with no display. The first time asks for your password once. It stops by itself at the battery level you choose (20% unless you pick 10, 30 or 50%) or if the Mac overheats. Don't put the Mac in a bag while it runs.
+
 **Also in the notch**
 - Volume, brightness and keyboard backlight indicators in place of the system ones.
-- Calendar events and reminders; a timer and Keep Awake with a duration.
+- Calendar events and reminders; a timer and Keep Awake with a duration, which can also keep the Mac working with the lid closed (see below).
 - A shelf for files you drop on the notch; AirDrop and LocalSend sharing.
 - A colour picker that copies the colour, a notes tab (with optional sync to Apple Notes), a terminal.
 - Indicators for Caps Lock, Focus, screen recording, microphone and camera use, downloads in progress, Bluetooth connections and battery.
@@ -96,6 +98,7 @@ Download Luoto only from this repository's Releases and check the SHA-256.
 | Full Disk Access (optional, no key, no dialog) | Read custom Focus names | Never; you add Luoto by hand in Privacy & Security | Focus is shown, but under the name "Focus" |
 | Keychain items of other apps | The usage monitor reads sign-in tokens of Claude, Codex, Cursor and others to ask their usage | When you turn on the usage monitor; macOS asks for each item | No usage numbers |
 | Login Items (no dialog) | Start Luoto at login | When you turn on launch at login in Settings → General | Luoto does not start at login |
+| Administrator password and a background item (macOS's own dialog; Luoto never sees the password) | Keep the Mac awake with the lid closed, through a small helper that acts only during a session | Once, when you turn on **With the lid closed**, and again only if a new version changes the helper | The Mac sleeps as usual when you close the lid |
 
 Reset all of them at any time:
 
@@ -143,12 +146,15 @@ Every address in the source is in [`tests/network_allowlist.txt`](tests/network_
 
 **Does it drain the battery?** See the numbers at the top and measure on your own Mac with `scripts/perf/measure.sh`. The waveform, per-app volume, stats, download detection and the usage monitor run only when you turn them on.
 
+**What does "With the lid closed" do?** While a Keep Awake session runs, a small helper turns system sleep off, so closing the lid does not stop anything. Luoto says you can close the lid only after reading back from the system that this took effect. The session ends by itself at the level you choose when on battery power (20% unless you pick 10, 30 or 50%), or if the Mac overheats, and a Mac with its lid closed then sleeps. macOS's own low-battery and heat sleep does not work while sleep is off, which is why the helper checks both, and why the Mac should not go in a bag. If Luoto quits, crashes or hangs, the helper turns sleep back on within about a minute. The built-in microphone and camera don't work under a closed lid, and Sleep in the Apple menu does nothing during a session. In System Settings → General → Login Items & Extensions the helper appears as `io.github.amidamaru940.luoto.lidguard`, from an "unidentified developer": macOS says that about anything not notarized by Apple. Switching it off there turns sleep back on and stops this feature. Details are in [SECURITY.md](SECURITY.md).
+
 **Do updates keep my permissions?** They should. Every release is signed with the same certificate, so macOS treats a new version as the same app; Accessibility stayed on when we moved between two versions signed this way. If macOS loses Accessibility anyway, Settings shows a **Restore Access** card.
 
 **How do I uninstall completely?**
-1. Turn off launch at login in Settings → General, if it is on.
-2. Reset the permissions: `tccutil reset All io.github.amidamaru940.luoto`
-3. Quit Luoto and delete:
+1. If you turned on **With the lid closed**, press **Remove Helper** in Settings → General → Keep Awake, while Luoto is still here. It needs no password. If the app is already gone, the helper removes itself at the next restart.
+2. Turn off launch at login in Settings → General, if it is on.
+3. Reset the permissions: `tccutil reset All io.github.amidamaru940.luoto`
+4. Quit Luoto and delete:
    - `/Applications/Luoto.app`
    - `~/Library/Preferences/io.github.amidamaru940.luoto.plist`
    - `~/Library/Application Support/io.github.amidamaru940.luoto`
@@ -156,7 +162,16 @@ Every address in the source is in [`tests/network_allowlist.txt`](tests/network_
    - `~/Library/HTTPStorages/io.github.amidamaru940.luoto` and `~/Library/HTTPStorages/io.github.amidamaru940.luoto.binarycookies`
    - `~/Library/Saved Application State/io.github.amidamaru940.luoto.savedState`
    - the temporary folder `Luoto clipboard screenshots` inside `$TMPDIR` (`open "$TMPDIR"` shows it)
-4. If you signed in to Spotify or Cider, or entered API keys, open Keychain Access, search for `luoto` and for `Atoll`, and delete what they find. Spotify, Cider and usage-monitor items keep the name of the app Luoto was forked from.
+5. If you signed in to Spotify or Cider, or entered API keys, open Keychain Access, search for `luoto` and for `Atoll`, and delete what they find. Spotify, Cider and usage-monitor items keep the name of the app Luoto was forked from.
+
+To remove the helper by hand, run these in Terminal. The last line is needed only if `pmset -g` shows `SleepDisabled 1`:
+
+```bash
+sudo launchctl bootout system/io.github.amidamaru940.luoto.lidguard
+sudo rm -f /Library/LaunchDaemons/io.github.amidamaru940.luoto.lidguard.plist /Library/PrivilegedHelperTools/io.github.amidamaru940.luoto.lidguard
+sudo rm -rf "/Library/Application Support/Luoto"
+sudo pmset -a disablesleep 0
+```
 
 **How is it different from Atoll?** Luoto is a fork of Atoll at one commit (see [NOTICE](NOTICE)). Changes: nothing asks for a permission at launch; every network feature is off by default and listed in a test; updates only if you say yes, from this project's releases; clipboard history in memory by default; screenshot batches. Removed: everything bundled without a known source or licence (the AirPods and Beats videos, idle animations, some sounds and pictures), the camera mirror, and the old update channels. Service logos stay in the app as their owners' trademarks: see [TRADEMARKS](TRADEMARKS).
 

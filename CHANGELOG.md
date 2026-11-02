@@ -5,6 +5,15 @@ All notable changes to Luoto are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). For the history
 before the fork, see [Atoll's changelog](https://github.com/Ebullioscopic/Atoll/blob/dev/CHANGELOG.md).
 
+## [1.3.0] — 2026-11-02
+
+### Added
+- **Keep Awake with the lid closed.** Turn on *With the lid closed* in the Keep Awake panel or in Settings, and the Mac goes on working under a closed lid, on battery and with no display: builds, downloads, AI agents. It is off until you turn it on. The first time asks for your password once, and macOS reports a new background item: a small helper that acts only during a session. Luoto says you can close the lid only after reading back from the system that it will hold. It stops by itself at the battery level you choose (10, 20, 30 or 50%; 20% unless you change it) or if the Mac overheats, and the Mac sleeps as usual if Luoto crashes or quits. See [SECURITY.md](SECURITY.md).
+
+### Fixed
+- Luoto could crash if it started, or a display setting changed, with no screen online.
+- The Now Playing helper could stay behind after Luoto quit. Quitting now stops it, and the next launch clears one left by a crash.
+
 ## [1.2.0] — 2026-10-31
 
 ### Changed

@@ -23,7 +23,7 @@ RELEASE_SCRIPT = ROOT / "scripts" / "make-release.sh"
 def source_urls():
     """Every http(s) literal in the app sources, mapped to where it occurs."""
     found = {}
-    for path in sorted(SOURCES.rglob("*")):
+    for path in sorted([*SOURCES.rglob("*"), *(ROOT / "LidGuard").rglob("*")]):
         if not path.is_file() or path.suffix not in SCANNED_SUFFIXES:
             continue
         for number, line in enumerate(path.read_text(errors="ignore").splitlines(), 1):

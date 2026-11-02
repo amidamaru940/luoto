@@ -90543,6 +90543,376 @@
           }
         }
       }
+    },
+    "With the lid closed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "С закрытой крышкой"
+          }
+        }
+      }
+    },
+    "Keep awake with the lid closed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не засыпать с закрытой крышкой"
+          }
+        }
+      }
+    },
+    "The Mac stays awake with the lid closed, even on battery with no display. Asks for your password once, and macOS will report a new background item." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac не уснёт с закрытой крышкой, даже от батареи и без монитора. Один раз спросит пароль, и macOS сообщит о новом объекте в фоне."
+          }
+        }
+      }
+    },
+    "The Mac stays awake with the lid closed, even on battery with no display." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac не уснёт с закрытой крышкой, даже от батареи и без монитора."
+          }
+        }
+      }
+    },
+    "Waiting for your password…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ждём пароль…"
+          }
+        }
+      }
+    },
+    "No password entered. Nothing changed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пароль не введён, ничего не изменилось."
+          }
+        }
+      }
+    },
+    "This copy of Luoto is damaged. Download it again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эта копия Luoto повреждена. Скачайте её заново."
+          }
+        }
+      }
+    },
+    "Move Luoto to Applications first." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала перенесите Luoto в «Программы»."
+          }
+        }
+      }
+    },
+    "Works while Keep Awake is on." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сработает, когда включите «Не засыпать»."
+          }
+        }
+      }
+    },
+    "Checking… Keep the lid open for now." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверяем… Пока не закрывайте крышку."
+          }
+        }
+      }
+    },
+    "Lid closed, Mac running. The built-in mic and camera are off." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Крышка закрыта, Mac работает. Встроенные микрофон и камера выключены."
+          }
+        }
+      }
+    },
+    "Another tool has already turned sleep off. Luoto leaves that setting alone, so the battery and heat limits won't apply." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сон уже отключён другой программой. Luoto её настройку не трогает, поэтому лимиты заряда и температуры не сработают."
+          }
+        }
+      }
+    },
+    "It didn't work: sleep is still on. Don't close the lid, the Mac will sleep." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не получилось: сон не отключён. Не закрывайте крышку, Mac уснёт."
+          }
+        }
+      }
+    },
+    "Another user on this Mac installed the helper. It doesn't work for you yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помощника поставил другой пользователь этого Mac. У вас он пока не работает."
+          }
+        }
+      }
+    },
+    "The helper needs an update, which asks for your password." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помощника нужно обновить, понадобится пароль."
+          }
+        }
+      }
+    },
+    "Sleep was left off after a problem. Fix it with your password?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "После сбоя сон остался отключён. Исправить с паролем?"
+          }
+        }
+      }
+    },
+    "The helper is removed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помощник удалён."
+          }
+        }
+      }
+    },
+    "Couldn't remove it. The README explains how to do it by hand." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалилось. Как убрать вручную, написано в README."
+          }
+        }
+      }
+    },
+    "Turn On Again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включить снова"
+          }
+        }
+      }
+    },
+    "Install for Me" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поставить для меня"
+          }
+        }
+      }
+    },
+    "Fix It" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Исправить"
+          }
+        }
+      }
+    },
+    "Remove Helper" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить помощника"
+          }
+        }
+      }
+    },
+    "This Mac cannot sleep right now" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac сейчас не может уснуть"
+          }
+        }
+      }
+    },
+    "lid can be closed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "можно закрыть крышку"
+          }
+        }
+      }
+    },
+    "needs attention" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "нужно внимание"
+          }
+        }
+      }
+    },
+    "Luoto is installing a helper so the Mac can stay awake with the lid closed. This is needed once." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Luoto ставит помощника, чтобы Mac не засыпал с закрытой крышкой. Это нужно один раз."
+          }
+        }
+      }
+    },
+    "Luoto needs this to let the Mac sleep again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Luoto нужно это, чтобы Mac снова мог засыпать."
+          }
+        }
+      }
+    },
+    "Update" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обновить"
+          }
+        }
+      }
+    },
+    "You can close the lid. Don't put the Mac in a bag. With the lid closed it sleeps at %d%% battery or if it overheats." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Можно закрыть крышку. Не кладите Mac в сумку. С закрытой крышкой он уснёт при %d %% заряда или при перегреве."
+          }
+        }
+      }
+    },
+    "Stopped: the Mac got too hot. Closing the lid puts it to sleep again. Let it cool down and turn it on again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановлено: Mac перегрелся. С закрытой крышкой он снова засыпает. Дайте ему остыть и включите снова."
+          }
+        }
+      }
+    },
+    "With the lid closed, Luoto turns system sleep off through a small helper that acts only during a session. The built-in microphone and camera don't work under a closed lid, and Sleep in the Apple menu does nothing while it acts." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "С закрытой крышкой Luoto отключает сон системы через маленького помощника, который действует только во время сеанса. Встроенные микрофон и камера под крышкой не работают, а пункт «Режим сна» в меню Apple на это время не действует."
+          }
+        }
+      }
+    },
+    "Luoto's helper turned sleep off and no longer answers. Your password puts this right." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помощник Luoto отключил сон и больше не отвечает. Пароль Mac всё исправит."
+          }
+        }
+      }
+    },
+    "Luoto's helper isn't answering, so nothing is watching the battery or the heat. The Mac stays awake with the lid closed. Try again, or turn this off." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помощник Luoto не отвечает, поэтому никто не следит за зарядом и перегревом. С закрытой крышкой Mac не уснёт. Повторите или выключите."
+          }
+        }
+      }
+    },
+    "Couldn't install the helper. If it is switched off in Login Items, turn it on and try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось поставить помощника. Если он выключен в разделе «Объекты входа», включите его и повторите."
+          }
+        }
+      }
+    },
+    "Sleep at battery level" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уснуть при заряде"
+          }
+        }
+      }
+    },
+    "Stopped because of low battery. Closing the lid puts the Mac to sleep again. Plug in and turn it on again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановлено из-за низкого заряда. С закрытой крышкой Mac снова засыпает. Подключите зарядку и включите снова."
+          }
+        }
+      }
+    },
+    "The helper is switched off. In System Settings, open General → Login Items & Extensions and turn on the item ending in luoto.lidguard." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помощник выключен. В Системных настройках откройте «Основные → Объекты входа и расширения» и включите пункт, который заканчивается на luoto.lidguard."
+          }
+        }
+      }
     }
   },
   "version" : "1.2"

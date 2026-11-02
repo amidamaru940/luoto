@@ -24,6 +24,7 @@ PROMPTS = [
     r"contentsOfDirectory\(at: documentsDirectory",
     r"ProtectedFolder\.touch\(",
     r"check\(askingUser: true\)",
+    r"await runAsAdministrator\(",
 ]
 GUARD = "AppRuntimeEnvironment.mayAskForPermissions"
 WINDOW = 20  # lines above the call that may hold the guard (the top of its function)
