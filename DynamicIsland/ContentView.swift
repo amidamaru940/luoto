@@ -72,6 +72,8 @@ struct ContentView: View {
     /// goes down into the panel, after which the menu bar beside the neck is
     /// the menus' again. nil otherwise.
     @State private var openBandFootprint: CGRect?
+    /// Closes the island once a drag that opened it has really gone (DragLeavePolicy).
+    @State private var dragLeaveWork: DispatchWorkItem?
     @ObservedObject var capsLockManager = CapsLockManager.shared
     @ObservedObject var screenshotManager = ScreenshotShelfManager.shared
     @ObservedObject var extensionLiveActivityManager = ExtensionLiveActivityManager.shared
@@ -2558,6 +2560,8 @@ struct ContentView: View {
                 }
                 .onChange(of: vm.anyDropZoneTargeting) { _, isTargeted in
                     if isTargeted {
+                        dragLeaveWork?.cancel()
+                        dragLeaveWork = nil
                         let draggingOut = ScreenshotShelfManager.shared.isDragging
                             || ShelfSelectionModel.shared.isDragging
                             || ClipboardManager.shared.isDraggingItem
@@ -2579,14 +2583,39 @@ struct ContentView: View {
                         }
 
                         vm.dropEvent = false
-                        if !shouldPreventAutoClose() {
-                            vm.close()
-                        }
+                        scheduleDragLeaveCheck()
                     }
                 }
         } else {
             EmptyView()
         }
+    }
+
+    /// A drag that left only for a moment, as the island grew under it, is back
+    /// before this runs. See DragLeavePolicy.
+    private func scheduleDragLeaveCheck() {
+        dragLeaveWork?.cancel()
+        let work = DispatchWorkItem {
+            switch DragLeavePolicy.decide(
+                targeted: vm.anyDropZoneTargeting,
+                buttonHeld: NSEvent.pressedMouseButtons & 1 != 0,
+                pointerInsideWindow: isPointInsideNotchWindow(),
+                holdOpen: shouldPreventAutoClose()
+            ) {
+            case .keepOpen:
+                dragLeaveWork = nil
+            case .wait:
+                scheduleDragLeaveCheck()
+            case .recheckHover:
+                dragLeaveWork = nil
+                vm.shouldRecheckHover.toggle()
+            case .close:
+                dragLeaveWork = nil
+                if vm.notchState == .open { vm.close() }
+            }
+        }
+        dragLeaveWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + DragLeavePolicy.grace, execute: work)
     }
 
     // MARK: - Private Methods
@@ -2693,6 +2722,8 @@ struct ContentView: View {
     private func performViewTeardown() {
         menuBarLayout.stopTracking()
         hoverTask?.cancel()
+        dragLeaveWork?.cancel()
+        dragLeaveWork = nil
         hoverIntentWatch.stop()
         stopHoverClickMonitor()
         removeStickyTerminalClickMonitor()

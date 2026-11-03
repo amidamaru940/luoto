@@ -5,6 +5,11 @@ All notable changes to Luoto are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). For the history
 before the fork, see [Atoll's changelog](https://github.com/Ebullioscopic/Atoll/blob/dev/CHANGELOG.md).
 
+## [1.3.1] — 2026-11-03
+
+### Fixed
+- Dragging a file or picture onto the island made it open and close over and over, so it could not be dropped there, on AirDrop or the shelf. The island now stays open until the drag has really left.
+
 ## [1.3.0] — 2026-11-02
 
 ### Added

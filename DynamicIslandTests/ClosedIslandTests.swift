@@ -278,3 +278,50 @@ final class ClosedIslandTests: XCTestCase {
         XCTAssertTrue(IslandLayout.compact.keeps(.nowPlaying), "never an island without a tab")
     }
 }
+
+/// A drag that opened the island was reported as gone for a moment while the
+/// island grew, and the island closed and opened over and over (02.11.2026).
+final class DragLeavePolicyTests: XCTestCase {
+    func testAMomentaryLeaveThatComesBackKeepsTheIslandOpen() {
+        XCTAssertEqual(DragLeavePolicy.decide(targeted: true, buttonHeld: true, pointerInsideWindow: true, holdOpen: false), .keepOpen)
+    }
+
+    func testStillDraggingOverTheIslandWaits() {
+        XCTAssertEqual(DragLeavePolicy.decide(targeted: false, buttonHeld: true, pointerInsideWindow: true, holdOpen: false), .wait)
+    }
+
+    func testLetGoOverTheIslandHandsItToTheHoverLogic() {
+        XCTAssertEqual(DragLeavePolicy.decide(targeted: false, buttonHeld: false, pointerInsideWindow: true, holdOpen: false), .recheckHover)
+    }
+
+    func testADragThatReallyLeftClosesIt() {
+        XCTAssertEqual(DragLeavePolicy.decide(targeted: false, buttonHeld: true, pointerInsideWindow: false, holdOpen: false), .close)
+        XCTAssertEqual(DragLeavePolicy.decide(targeted: false, buttonHeld: false, pointerInsideWindow: false, holdOpen: false), .close)
+    }
+
+    func testSomethingHoldingItOpenWins() {
+        XCTAssertEqual(DragLeavePolicy.decide(targeted: false, buttonHeld: false, pointerInsideWindow: false, holdOpen: true), .keepOpen)
+    }
+
+    func testTheGraceOutlastsTheIslandGrowing() {
+        XCTAssertGreaterThanOrEqual(DragLeavePolicy.grace, 0.3)
+        XCTAssertLessThanOrEqual(DragLeavePolicy.grace, 1)
+    }
+
+    /// The close on a drag leaving goes only through the policy.
+    func testTheDragDetectorNoLongerClosesOnTheSpot() throws {
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DynamicIsland/ContentView.swift"), encoding: .utf8)
+        let detector = try XCTUnwrap(source.range(of: "var dragDetector: some View"))
+        let end = try XCTUnwrap(source.range(of: "private func scheduleDragLeaveCheck()"))
+        let body = source[detector.upperBound..<end.lowerBound]
+        XCTAssertFalse(body.contains("vm.close()"))
+        XCTAssertTrue(body.contains("scheduleDragLeaveCheck()"))
+        // A drag coming back cancels the pending check.
+        XCTAssertTrue(body.contains("dragLeaveWork?.cancel()"))
+        // And a view torn down mid-drag, moving to another screen, takes it with it.
+        let teardown = try XCTUnwrap(source.range(of: "private func performViewTeardown()"))
+        XCTAssertTrue(source[teardown.upperBound...].prefix(400).contains("dragLeaveWork?.cancel()"))
+    }
+}
