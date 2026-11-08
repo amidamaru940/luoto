@@ -93,7 +93,8 @@ final class ClipboardScreenshotCollector {
         guard count != lastChangeCount else { return }
         lastChangeCount = count
         let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        ClipboardShotLog.note("change \(count): onlyPicture=\(ClipboardScreenshotDetector.holdsOnlyAPicture(pasteboard)) tool=\(ClipboardScreenshotDetector.isScreenshotToolRunning()) fullScreen=\(ClipboardScreenshotDetector.isFullScreenPicture(pasteboard))")
+        // Types only: no picture data and no process list for a log line.
+        ClipboardShotLog.note("change \(count): onlyPicture=\(ClipboardScreenshotDetector.holdsOnlyAPicture(pasteboard))")
         guard let shot = Self.capture(from: pasteboard, sourceBundleID: source) else { return }
         // More of a burst may follow (the toolbar's timer, a held shortcut).
         if isRunning { watcher.burst() }

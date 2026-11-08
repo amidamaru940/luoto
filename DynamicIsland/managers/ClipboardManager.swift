@@ -883,8 +883,10 @@ class ClipboardManager: ObservableObject {
         
         // Priority 2: If there's ONLY image data without file URLs (screenshots, direct image paste)
         // PNG, then TIFF, then JPEG, as before; a listed type whose data does not come
-        // falls through to the next one.
-        if hasImageData && !hasFileURLs {
+        // falls through to the next one. Not for a picture copied on the iPhone:
+        // reading it would pull it over the network before anyone pastes it.
+        let isRemote = ClipboardCapturePolicy.isRemote(ClipboardCapturePolicy.allTypes(on: pasteboard))
+        if hasImageData && !hasFileURLs && !isRemote {
             for type in imageTypes {
                 if let imageData = pasteboard.data(forType: type) {
                     return ClipboardItem(imageData: imageData)

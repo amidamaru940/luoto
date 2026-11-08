@@ -5,6 +5,15 @@ All notable changes to Luoto are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). For the history
 before the fork, see [Atoll's changelog](https://github.com/Ebullioscopic/Atoll/blob/dev/CHANGELOG.md).
 
+## [1.3.2] — 2026-11-07
+
+### Changed
+- **A picture copied on the iPhone stays there until you paste it.** Luoto used to fetch every picture copied on another device through Universal Clipboard within a second, for the clipboard history. Now it leaves it alone: you paste it with ⌘V as before, but it no longer enters Luoto's history by itself. Text copied on the iPhone still does.
+
+### Fixed
+- A debug log line looked at the copied picture on every clipboard change, even while the history was paused or the copy came from a password manager. It now looks only at what kind of copy it is.
+- Pasting into the island's Notes no longer reads the copied picture when only the text is pasted. A picture that is listed but never arrives pastes its text instead of nothing, and a JPEG-only copy now pastes as a picture.
+
 ## [1.3.1] — 2026-11-03
 
 ### Fixed

@@ -379,6 +379,120 @@ final class ClipboardTabManagerTests: XCTestCase {
         XCTAssertEqual(promised.read, [], "Finder's icon is not the copy")
     }
 
+    /// A picture copied on the iPhone is not pulled over the air by Luoto:
+    /// nothing is read and nothing enters the history. The app it is pasted
+    /// into still asks for it as usual.
+    func testAPictureFromThePhoneIsNotPulled() {
+        let promised = PromisedPasteboardData(promising: [(.png, pngData()), (.tiff, Data([0x4D, 0x4D]))],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        manager.captureChange(from: pasteboard, sourceBundleID: nil)
+        settle()
+        XCTAssertEqual(promised.read, [], "no picture pulled from the phone")
+        XCTAssertTrue(manager.clipboardHistory.isEmpty)
+    }
+
+    /// Text copied on the iPhone still enters the history, read once.
+    func testTextFromThePhoneIsStillRecorded() {
+        let promised = PromisedPasteboardData(promising: [(.string, Data("from the phone".utf8))],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: nil), .record)
+        settle()
+        XCTAssertEqual(manager.clipboardHistory.first?.stringData, "from the phone")
+        XCTAssertEqual(promised.read, [.string])
+    }
+
+    /// A phone copy with a picture and its text keeps the text and leaves the
+    /// picture where it is.
+    func testAPhoneCopyWithTextKeepsTheTextOnly() {
+        let promised = PromisedPasteboardData(promising: [(.png, pngData()), (.string, Data("caption".utf8))],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        manager.captureChange(from: pasteboard, sourceBundleID: nil)
+        settle()
+        XCTAssertEqual(manager.clipboardHistory.first?.stringData, "caption")
+        XCTAssertFalse(promised.read.contains(.png))
+    }
+
+    /// The marker may sit on any item of the copy, not only the first.
+    func testThePhoneMarkerOnAnotherItemStillCounts() {
+        let marker = NSPasteboardItem()
+        marker.setString("1", forType: ClipboardCapturePolicy.remoteMarker)
+        let promised = PromisedPasteboardData(promising: [(.png, pngData())])
+        promised.write(to: pasteboard, alongside: [marker])
+        manager.captureChange(from: pasteboard, sourceBundleID: nil)
+        settle()
+        XCTAssertEqual(promised.read, [])
+        XCTAssertTrue(manager.clipboardHistory.isEmpty)
+    }
+
+    /// A rich copy from the phone with a picture keeps its rich text only.
+    func testAPhoneCopyWithRichTextReadsTheRichTextOnly() {
+        let rtf = NSAttributedString(string: "Hello").rtf(from: NSRange(location: 0, length: 5), documentAttributes: [:])!
+        let promised = PromisedPasteboardData(promising: [(.png, pngData()), (.rtf, rtf)],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        manager.captureChange(from: pasteboard, sourceBundleID: nil)
+        settle()
+        XCTAssertEqual(manager.clipboardHistory.first?.type, .rtf)
+        XCTAssertEqual(promised.read, [.rtf])
+    }
+
+    /// With clipboard screenshots going to the Screenshots tab, a phone
+    /// picture is not looked at to decide whether it is a screenshot.
+    func testAPhonePictureIsNotCheckedAsAScreenshot() {
+        let savedShelf = Defaults[.enableScreenshotShelf], savedCollect = Defaults[.collectClipboardScreenshots]
+        let savedTool = ClipboardScreenshotDetector.isScreenshotToolRunning
+        Defaults[.enableScreenshotShelf] = true
+        Defaults[.collectClipboardScreenshots] = true
+        ClipboardScreenshotDetector.isScreenshotToolRunning = { false }
+        defer {
+            Defaults[.enableScreenshotShelf] = savedShelf
+            Defaults[.collectClipboardScreenshots] = savedCollect
+            ClipboardScreenshotDetector.isScreenshotToolRunning = savedTool
+        }
+        let promised = PromisedPasteboardData(promising: [(.png, pngData())],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        XCTAssertNotEqual(manager.captureChange(from: pasteboard, sourceBundleID: nil), .routedToScreenshots)
+        settle()
+        XCTAssertEqual(promised.read, [], "not even for the full-screen size check")
+
+        // The control: the same copy made on this Mac is looked at.
+        let local = PromisedPasteboardData(promising: [(.png, pngData())])
+        local.write(to: pasteboard)
+        manager.captureChange(from: pasteboard, sourceBundleID: nil)
+        settle()
+        XCTAssertTrue(local.read.contains(.png))
+    }
+
+    /// Pasting into Notes: a JPEG-only picture is found, a picture whose data
+    /// never comes gives nil (the text is pasted instead), and nothing is
+    /// read for a copy without a picture.
+    func testNotesFindsThePictureToPaste() {
+        let jpegBytes = NSBitmapImageRep(data: pngData())!.representation(using: .jpeg, properties: [:])!
+        let jpeg = PromisedPasteboardData(promising: [(.init("public.jpeg"), jpegBytes)], eager: [(.string, "caption")])
+        jpeg.write(to: pasteboard)
+        let found = NotesPaste.pictureData(from: pasteboard)
+        XCTAssertNotNil(found.flatMap(NSImage.init(data:)), "a JPEG-only copy still pastes as a picture")
+
+        // A broken JPEG: the system's TIFF conversion comes back empty.
+        let broken = PromisedPasteboardData(promising: [(.init("public.jpeg"), Data([0xFF, 0xD8]))], eager: [(.string, "caption")])
+        broken.write(to: pasteboard)
+        XCTAssertNotEqual(NotesPaste.pictureData(from: pasteboard)?.isEmpty, true)
+
+        let missing = PromisedPasteboardData(promising: [], eager: [(.string, "caption")], withholding: [.tiff, .png])
+        missing.write(to: pasteboard)
+        XCTAssertNil(NotesPaste.pictureData(from: pasteboard))
+        XCTAssertEqual(Set(missing.read), [.tiff, .png], "both tried, neither came")
+
+        let textOnly = PromisedPasteboardData(promising: [(.string, Data("hi".utf8))])
+        textOnly.write(to: pasteboard)
+        XCTAssertNil(NotesPaste.pictureData(from: pasteboard))
+        XCTAssertEqual(textOnly.read, [], "no picture type listed, nothing asked for")
+    }
+
     func testThePictureTypesAreTriedInOrder() {
         XCTAssertEqual(ClipboardRepresentation.imageTypes(in: [.string, .tiff, .png]), [.png, .tiff])
         XCTAssertEqual(ClipboardRepresentation.imageTypes(in: [.init("public.jpeg"), .html]), [.init("public.jpeg")])
@@ -388,22 +502,28 @@ final class ClipboardTabManagerTests: XCTestCase {
 
 /// A copy whose data comes only when it is read, like one made on the iPhone
 /// and offered through Universal Clipboard; notes which types were read.
-private final class PromisedPasteboardData: NSObject, NSPasteboardItemDataProvider {
+final class PromisedPasteboardData: NSObject, NSPasteboardItemDataProvider {
     private let promised: [(NSPasteboard.PasteboardType, Data)]
     private let eager: [(NSPasteboard.PasteboardType, String)]
+    /// Listed, but their data never comes (the source app quit, the phone
+    /// went out of range).
+    private let withheld: [NSPasteboard.PasteboardType]
     private(set) var read: [NSPasteboard.PasteboardType] = []
 
-    init(promising promised: [(NSPasteboard.PasteboardType, Data)], eager: [(NSPasteboard.PasteboardType, String)] = []) {
+    init(promising promised: [(NSPasteboard.PasteboardType, Data)], eager: [(NSPasteboard.PasteboardType, String)] = [],
+         withholding withheld: [NSPasteboard.PasteboardType] = []) {
         self.promised = promised
         self.eager = eager
+        self.withheld = withheld
     }
 
-    func write(to pasteboard: NSPasteboard) {
+    /// `alongside` adds further items after the promised one.
+    func write(to pasteboard: NSPasteboard, alongside extra: [NSPasteboardItem] = []) {
         pasteboard.clearContents()
         let item = NSPasteboardItem()
         for (type, value) in eager { item.setString(value, forType: type) }
-        item.setDataProvider(self, forTypes: promised.map { $0.0 })
-        pasteboard.writeObjects([item])
+        item.setDataProvider(self, forTypes: promised.map { $0.0 } + withheld)
+        pasteboard.writeObjects([item] + extra)
     }
 
     func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {

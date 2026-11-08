@@ -488,6 +488,51 @@ final class ClipboardScreenshotCollectorTests: XCTestCase {
         XCTAssertTrue(saved.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
     }
 
+    /// A picture copied on the iPhone is neither pulled nor saved, even while
+    /// the screenshot tool runs on the Mac.
+    func testAPictureFromThePhoneIsNeverPulledOrSaved() {
+        var saved = 0
+        let collector = ClipboardScreenshotCollector(pasteboard: pasteboard, folder: folder) { _, _ in saved += 1 }
+        let promised = PromisedPasteboardData(promising: [(.png, png())],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        collector.poll()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertEqual(promised.read, [], "no picture pulled from the phone")
+        XCTAssertEqual(saved, 0)
+        XCTAssertFalse(ClipboardScreenshotDetector.isScreenshot(pasteboard))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    /// While the history is paused nothing reads the picture, not even the
+    /// collector's own log line.
+    func testAPausedHistoryLeavesThePictureUnread() {
+        let savedPaused = Defaults[.clipboardHistoryPaused]
+        Defaults[.clipboardHistoryPaused] = true
+        defer { Defaults[.clipboardHistoryPaused] = savedPaused }
+        ClipboardScreenshotDetector.isScreenshotToolRunning = { false }
+        let collector = ClipboardScreenshotCollector(pasteboard: pasteboard, folder: folder) { _, _ in }
+        let promised = PromisedPasteboardData(promising: [(.png, png())])
+        promised.write(to: pasteboard)
+        collector.poll()
+        XCTAssertEqual(promised.read, [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    /// A password manager's picture is not read at all, not even for the log.
+    func testAConcealedPictureIsNotRead() {
+        var toolChecks = 0
+        ClipboardScreenshotDetector.isScreenshotToolRunning = { toolChecks += 1; return true }
+        let collector = ClipboardScreenshotCollector(pasteboard: pasteboard, folder: folder) { _, _ in }
+        let promised = PromisedPasteboardData(promising: [(.png, png())],
+                                              eager: [(.init("org.nspasteboard.ConcealedType"), "")])
+        promised.write(to: pasteboard)
+        collector.poll()
+        XCTAssertEqual(promised.read, [])
+        XCTAssertEqual(toolChecks, 0, "no process list for a copy that is refused anyway")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+    }
+
     func testConcealedPicturesAreNotSaved() {
         pasteboard.declareTypes([.png, .init("org.nspasteboard.ConcealedType")], owner: nil)
         pasteboard.setData(png(), forType: .png)

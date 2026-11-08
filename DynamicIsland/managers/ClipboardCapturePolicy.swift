@@ -53,6 +53,16 @@ enum ClipboardCapturePolicy {
         "com.lastpass.LastPass",
     ]
 
+    /// What macOS puts on a copy made on the iPhone or another Mac (Universal
+    /// Clipboard). Its data is only a promise: reading it pulls the content
+    /// over the network. Luoto never pulls a picture from such a copy by
+    /// itself; the app it is pasted into still gets it as before.
+    static let remoteMarker = NSPasteboard.PasteboardType("com.apple.is-remote-clipboard")
+
+    static func isRemote(_ types: [NSPasteboard.PasteboardType]) -> Bool {
+        types.contains(remoteMarker)
+    }
+
     static func decide(
         types: [NSPasteboard.PasteboardType],
         sourceBundleID: String?,

@@ -23,7 +23,7 @@ import Foundation
 /// As the island opens its window grows under the pointer, and the system
 /// reports the drag as gone for a moment before it comes straight back.
 /// Closing on that moment opened and closed the island over and over, so
-/// nothing could be dropped on it (owner, 02.11.2026). So it waits, and
+/// nothing could be dropped on it. So it waits, and
 /// closes only once the drag has really gone.
 enum DragLeavePolicy {
     /// Long enough for the island to finish growing.

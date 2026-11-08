@@ -44,10 +44,13 @@ enum ClipboardScreenshotDetector {
         .init("NSFilenamesPboardType"), .init("public.url"), .init("public.utf8-plain-text"),
     ]
 
-    /// A picture with no text, link, rich text or file alongside it.
+    /// A picture with no text, link, rich text or file alongside it, copied on
+    /// this Mac: a picture from the iPhone is not a screenshot taken here, and
+    /// looking at it would pull it over the network.
     static func holdsOnlyAPicture(_ pasteboard: NSPasteboard) -> Bool {
         let types = Set(ClipboardCapturePolicy.allTypes(on: pasteboard))
         return !types.isDisjoint(with: imageTypes) && types.isDisjoint(with: disqualifyingTypes)
+            && !types.contains(ClipboardCapturePolicy.remoteMarker)
     }
 
     static func isScreenshot(_ pasteboard: NSPasteboard) -> Bool {

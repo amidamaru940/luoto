@@ -150,12 +150,14 @@ struct NotchNotesView: View {
         let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "webp", "heic", "heif"]
         let fileURLs = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] ?? []
         let imageFile = fileURLs.first { imageExtensions.contains($0.pathExtension.lowercased()) }
-        let imageData = pasteboard.data(forType: .tiff) ?? pasteboard.data(forType: .png)
+        // From the types alone: the picture is read only when it is the one
+        // pasted. A copy from the iPhone pulls each read over the network.
+        let hasImageData = !ClipboardRepresentation.imageTypes(in: pasteboard.types ?? []).isEmpty
         let text = pasteboard.string(forType: .string)
 
         switch NotesPaste.action(
             hasImageFile: imageFile != nil,
-            hasImageData: imageData != nil,
+            hasImageData: hasImageData,
             hasText: text != nil,
             textFieldFocused: NSApp.keyWindow?.firstResponder is NSTextView,
             inEditor: isEditingNewNote || selectedNoteId != nil
@@ -170,7 +172,16 @@ struct NotchNotesView: View {
             // caret, over the selection, with undo.
             NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
         case .imageData:
-            if let imageData { updateImageData(imageData) }
+            if let imageData = NotesPaste.pictureData(from: pasteboard) {
+                updateImageData(imageData)
+            } else if let text {
+                // The picture listed did not come: paste the text with it.
+                if isEditingNewNote || selectedNoteId != nil {
+                    editorContent.append(text)
+                } else {
+                    createNoteWithContent(text)
+                }
+            }
         case .appendToNote:
             if let text { editorContent.append(text) }
         case .newNote:
@@ -1070,5 +1081,16 @@ enum NotesPaste: Equatable {
         if hasImageData { return .imageData }
         if hasText { return inEditor ? .appendToNote : .newNote }
         return .nothing
+    }
+
+    /// The picture to paste: TIFF, PNG, then JPEG, the first listed one whose
+    /// data comes. Types not listed are never asked for. A TIFF the system
+    /// fails to convert from another format comes back empty: not a picture.
+    static func pictureData(from pasteboard: NSPasteboard) -> Data? {
+        let listed = Set(pasteboard.types ?? [])
+        for type in [NSPasteboard.PasteboardType.tiff, .png, .init("public.jpeg")] where listed.contains(type) {
+            if let data = pasteboard.data(forType: type), !data.isEmpty { return data }
+        }
+        return nil
     }
 }
