@@ -121,20 +121,24 @@ class ScreenshotSnippingTool: NSObject, ObservableObject {
     private func getImageFromPasteboard() {
         print("� ScreenshotTool: Checking pasteboard for screenshot")
         
-        guard NSPasteboard.general.canReadItem(withDataConformingToTypes: NSImage.imageTypes) else {
-            print("❌ ScreenshotTool: No image data in pasteboard")
-            finishSnipping()
-            return
-        }
-        
-        guard let image = NSImage(pasteboard: NSPasteboard.general) else {
-            print("❌ ScreenshotTool: Failed to create NSImage from pasteboard")
+        guard let image = Self.screenshot(from: NSPasteboard.general) else {
+            print("❌ ScreenshotTool: No screenshot in pasteboard")
             finishSnipping()
             return
         }
         
         print("✅ ScreenshotTool: Got image from pasteboard: \(image.size)")
         saveImageAndComplete(image: image)
+    }
+
+    /// The picture `screencapture -c` left on the pasteboard. A copy made on
+    /// the iPhone or another Mac (the capture was cancelled, or a phone copy
+    /// arrived meanwhile) is not ours and is not read: reading it would pull
+    /// it over the network.
+    static func screenshot(from pasteboard: NSPasteboard) -> NSImage? {
+        guard !ClipboardCapturePolicy.isRemote(ClipboardCapturePolicy.allTypes(on: pasteboard)),
+              pasteboard.canReadItem(withDataConformingToTypes: NSImage.imageTypes) else { return nil }
+        return NSImage(pasteboard: pasteboard)
     }
     
     // MARK: - Image Saving

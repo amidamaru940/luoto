@@ -5,6 +5,21 @@ All notable changes to Luoto are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). For the history
 before the fork, see [Atoll's changelog](https://github.com/Ebullioscopic/Atoll/blob/dev/CHANGELOG.md).
 
+## [1.3.3] — 2026-11-09
+
+### Changed
+- **Luoto no longer touches copies from your other devices.** Anything copied on an iPhone, iPad or another Mac and passed on through Universal Clipboard is no longer read by Luoto or added to its clipboard history: not text, links, rich text, files or pictures. You paste it with ⌘V as before. Until 1.3.2, text copied on the iPhone still entered the history; now nothing does.
+- The screen snipping tool ignores pictures copied on another device too.
+- The camera indicator no longer watches an iPhone used as a Continuity Camera. Built-in and USB cameras work as before.
+- Luoto no longer searches for cameras while the hidden mirror feature is off.
+- When you unlock the Mac or wake it from sleep, Luoto no longer checks what changed on the clipboard while you were away: nobody copies on a locked or sleeping Mac, so that copy came from another device. Checking it while macOS was still fetching it from the phone could freeze the island for several seconds. A copy you make right before locking is still kept: Luoto looks once more as you leave.
+- For a copy from another device Luoto asks the clipboard only for its list of types, and no longer for each of its items.
+- While clipboard history is paused, Luoto no longer asks the clipboard what it holds; it only notices that something changed.
+- The camera indicator now relies only on the system's camera status. Luoto no longer uses the camera framework for it, which used to wake up whenever an iPhone came near.
+
+### Added
+- A log line when a clipboard check takes longer than half a second. It records only how long the check took, never what was copied.
+
 ## [1.3.2] — 2026-11-07
 
 ### Changed

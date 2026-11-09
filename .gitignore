@@ -211,3 +211,7 @@ tests/fixtures/private/
 *.db
 *.keychain*
 
+
+# Python bytecode
+__pycache__/
+*.pyc

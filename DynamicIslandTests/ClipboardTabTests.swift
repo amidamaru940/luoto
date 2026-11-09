@@ -18,6 +18,8 @@
 
 @testable import Atoll
 import AppKit
+import AVFoundation
+import CoreMediaIO
 import Defaults
 import Network
 import XCTest
@@ -392,27 +394,181 @@ final class ClipboardTabManagerTests: XCTestCase {
         XCTAssertTrue(manager.clipboardHistory.isEmpty)
     }
 
-    /// Text copied on the iPhone still enters the history, read once.
-    func testTextFromThePhoneIsStillRecorded() {
+    /// Text copied on the iPhone is not read and not recorded: the app it is
+    /// pasted into fetches it, Luoto only looks at the types.
+    func testTextFromThePhoneIsNotRead() {
         let promised = PromisedPasteboardData(promising: [(.string, Data("from the phone".utf8))],
                                               eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
         promised.write(to: pasteboard)
-        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: nil), .record)
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: nil), .remote)
         settle()
-        XCTAssertEqual(manager.clipboardHistory.first?.stringData, "from the phone")
-        XCTAssertEqual(promised.read, [.string])
+        XCTAssertEqual(promised.read, [])
+        XCTAssertTrue(manager.clipboardHistory.isEmpty)
     }
 
-    /// A phone copy with a picture and its text keeps the text and leaves the
-    /// picture where it is.
-    func testAPhoneCopyWithTextKeepsTheTextOnly() {
+    /// One public line per skipped copy from another device: its change
+    /// count only, no content and no types. A local copy leaves none.
+    func testASkippedPhoneCopyLeavesOneLineWithItsCountOnly() {
+        let saved = ClipboardManager.logRemoteSkip
+        defer { ClipboardManager.logRemoteSkip = saved }
+        var lines: [String] = []
+        ClipboardManager.logRemoteSkip = { lines.append($0) }
+
+        let promised = PromisedPasteboardData(promising: [(.string, Data("from the phone".utf8))],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        let count = pasteboard.changeCount
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: nil, changeCount: count), .remote)
+        XCTAssertEqual(lines, ["remote change \(count) skipped"])
+        XCTAssertEqual(ClipboardCapturePolicy.seenRemote(changeCount: count, pasteboardName: pasteboard.name.rawValue), true)
+
+        pasteboard.clearContents()
+        pasteboard.setString("local", forType: .string)
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: nil), .record)
+        settle()
+        XCTAssertEqual(lines.count, 1, "a local copy leaves no line")
+        XCTAssertEqual(ClipboardCapturePolicy.seenRemote(changeCount: pasteboard.changeCount, pasteboardName: pasteboard.name.rawValue), false)
+        XCTAssertEqual(promised.read, [])
+    }
+
+    /// The one remembered change belongs to one pasteboard: the same change
+    /// count on a pasteboard of another name is not taken for it.
+    func testTheRememberedChangeKeepsToItsPasteboard() {
+        let other = NSPasteboard(name: NSPasteboard.Name("io.github.amidamaru940.luoto.tests.other.\(UUID().uuidString)"))
+        defer { other.releaseGlobally() }
+        let name = pasteboard.name.rawValue, otherName = other.name.rawValue
+        XCTAssertNotEqual(name, otherName)
+
+        ClipboardCapturePolicy.note(remote: true, changeCount: 7, on: pasteboard)
+        XCTAssertEqual(ClipboardCapturePolicy.seenRemote(changeCount: 7, pasteboardName: name), true)
+        XCTAssertNil(ClipboardCapturePolicy.seenRemote(changeCount: 7, pasteboardName: otherName),
+                     "the phone copy on one pasteboard says nothing about the other")
+
+        ClipboardCapturePolicy.note(remote: false, changeCount: 7, on: other)
+        XCTAssertEqual(ClipboardCapturePolicy.seenRemote(changeCount: 7, pasteboardName: otherName), false)
+        XCTAssertNil(ClipboardCapturePolicy.seenRemote(changeCount: 7, pasteboardName: name),
+                     "the local copy on the other pasteboard is not this one's")
+    }
+
+    /// A phone picture exactly one display in size: the full-screen check
+    /// would read its header and pull it over the air. The collector stops
+    /// at the marker first, so nothing is read.
+    func testTheCollectorSkipsAPhonePictureTheSizeOfTheScreen() {
+        let savedTool = ClipboardScreenshotDetector.isScreenshotToolRunning
+        let savedSizes = ClipboardScreenshotDetector.screenPixelSizes
+        defer {
+            ClipboardScreenshotDetector.isScreenshotToolRunning = savedTool
+            ClipboardScreenshotDetector.screenPixelSizes = savedSizes
+        }
+        ClipboardScreenshotDetector.isScreenshotToolRunning = { false }
+        ClipboardScreenshotDetector.screenPixelSizes = { [CGSize(width: 3, height: 3)] }
+
+        let promised = PromisedPasteboardData(promising: [(.png, pngData())],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        XCTAssertNil(ClipboardScreenshotCollector.capture(from: pasteboard, sourceBundleID: nil,
+                                                          changeCount: pasteboard.changeCount))
+        XCTAssertFalse(ClipboardScreenshotDetector.isScreenshot(pasteboard))
+        XCTAssertEqual(promised.read, [], "the size check never ran on the phone picture")
+
+        // The control: the same picture taken on this Mac matches the screen
+        // and is captured.
+        let local = PromisedPasteboardData(promising: [(.png, pngData())])
+        local.write(to: pasteboard)
+        XCTAssertNotNil(ClipboardScreenshotCollector.capture(from: pasteboard, sourceBundleID: nil))
+        XCTAssertTrue(local.read.contains(.png))
+    }
+
+    /// A phone copy with a picture and its text: neither is read.
+    func testAPhoneCopyWithTextIsNotRead() {
         let promised = PromisedPasteboardData(promising: [(.png, pngData()), (.string, Data("caption".utf8))],
                                               eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
         promised.write(to: pasteboard)
-        manager.captureChange(from: pasteboard, sourceBundleID: nil)
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: nil), .remote)
         settle()
-        XCTAssertEqual(manager.clipboardHistory.first?.stringData, "caption")
-        XCTAssertFalse(promised.read.contains(.png))
+        XCTAssertEqual(promised.read, [])
+        XCTAssertTrue(manager.clipboardHistory.isEmpty)
+    }
+
+    /// A link copied on the iPhone: not read as a URL object, nor as text.
+    func testALinkFromThePhoneIsNotRead() {
+        let promised = PromisedPasteboardData(promising: [(.URL, Data("https://example.org".utf8)),
+                                                          (.string, Data("https://example.org".utf8))],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: nil), .remote)
+        settle()
+        XCTAssertEqual(promised.read, [])
+        XCTAssertTrue(manager.clipboardHistory.isEmpty)
+    }
+
+    /// A file copied on another Mac: its address is a promise too, and
+    /// asking whether it is a file would fetch it.
+    func testAFileURLFromAnotherMacIsNotRead() throws {
+        let file = directory.appendingPathComponent("from-the-other-mac.txt")
+        try Data("notes".utf8).write(to: file)
+        let promised = PromisedPasteboardData(promising: [(.fileURL, Data(file.absoluteString.utf8))],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: "com.apple.finder"), .remote)
+        settle()
+        XCTAssertEqual(promised.read, [])
+        XCTAssertTrue(manager.clipboardHistory.isEmpty)
+    }
+
+    /// The marker on another item of the copy stops the text as well.
+    func testTheMarkerOnAnotherItemStopsTextToo() {
+        let marker = NSPasteboardItem()
+        marker.setString("1", forType: ClipboardCapturePolicy.remoteMarker)
+        let promised = PromisedPasteboardData(promising: [(.string, Data("from the phone".utf8))])
+        promised.write(to: pasteboard, alongside: [marker])
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: nil), .remote)
+        settle()
+        XCTAssertEqual(promised.read, [])
+        XCTAssertTrue(manager.clipboardHistory.isEmpty)
+    }
+
+    /// Pause, then the password managers' markers, then the phone, then the
+    /// ignored apps: the user's own rules keep their place before `.remote`.
+    func testThePolicyOrder() {
+        let remote = ClipboardCapturePolicy.remoteMarker
+        let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+        let ignored = "com.example.ignored"
+        func decide(_ types: [NSPasteboard.PasteboardType], paused: Bool = false, source: String? = ignored) -> ClipboardCapturePolicy.Decision {
+            ClipboardCapturePolicy.decide(types: types, sourceBundleID: source, isPaused: paused, ignoredApps: [ignored])
+        }
+        XCTAssertEqual(decide([.string, concealed, remote], paused: true), .paused)
+        XCTAssertEqual(decide([.string, concealed, remote]), .concealed)
+        XCTAssertEqual(decide([.string, remote]), .remote)
+        XCTAssertEqual(decide([.string, remote], source: nil), .remote)
+        XCTAssertEqual(decide([.string]), .ignoredApp)
+        XCTAssertEqual(decide([.string], source: nil), .record)
+    }
+
+    /// Pasting into Notes is the user's own request: a phone picture is
+    /// still read then, like in any app it is pasted into.
+    func testNotesPasteStillReadsAPhonePictureOnRequest() {
+        let promised = PromisedPasteboardData(promising: [(.png, pngData())],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        XCTAssertNotNil(NotesPaste.pictureData(from: pasteboard).flatMap(NSImage.init(data:)))
+        XCTAssertEqual(promised.read, [.png])
+    }
+
+    /// The snipping tool takes the picture `screencapture -c` left; a phone
+    /// picture found there instead is not read.
+    func testTheSnippingToolSkipsAPhonePicture() {
+        let promised = PromisedPasteboardData(promising: [(.png, pngData())],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        XCTAssertNil(ScreenshotSnippingTool.screenshot(from: pasteboard))
+        XCTAssertEqual(promised.read, [])
+
+        // The control: a screenshot taken on this Mac is read.
+        let local = PromisedPasteboardData(promising: [(.png, pngData())])
+        local.write(to: pasteboard)
+        XCTAssertNotNil(ScreenshotSnippingTool.screenshot(from: pasteboard))
+        XCTAssertTrue(local.read.contains(.png))
     }
 
     /// The marker may sit on any item of the copy, not only the first.
@@ -427,16 +583,73 @@ final class ClipboardTabManagerTests: XCTestCase {
         XCTAssertTrue(manager.clipboardHistory.isEmpty)
     }
 
-    /// A rich copy from the phone with a picture keeps its rich text only.
-    func testAPhoneCopyWithRichTextReadsTheRichTextOnly() {
-        let rtf = NSAttributedString(string: "Hello").rtf(from: NSRange(location: 0, length: 5), documentAttributes: [:])!
-        let promised = PromisedPasteboardData(promising: [(.png, pngData()), (.rtf, rtf)],
+    /// A copy from another device stops at the pasteboard's types: the
+    /// marker is there, so its items are not asked for. A local copy still
+    /// has every item looked at, for a marker on a later item.
+    func testAPhoneCopyIsNotAskedForItsItems() {
+        let originalClass: AnyClass = object_getClass(pasteboard!) ?? NSPasteboard.self
+        object_setClass(pasteboard, CountingPasteboard.self)
+        defer {
+            object_setClass(pasteboard, originalClass)
+            CountingPasteboard.reset()
+        }
+        let promised = PromisedPasteboardData(promising: [(.string, Data("from the phone".utf8))],
                                               eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
         promised.write(to: pasteboard)
-        manager.captureChange(from: pasteboard, sourceBundleID: nil)
+        CountingPasteboard.reset()
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: nil), .remote)
+        XCTAssertEqual(CountingPasteboard.itemReads, 0, "no item asked for a phone copy")
+        XCTAssertGreaterThan(CountingPasteboard.typeReads, 0)
+        XCTAssertEqual(promised.read, [])
+
+        pasteboard.clearContents()
+        pasteboard.setString("local", forType: .string)
+        CountingPasteboard.reset()
+        _ = ClipboardCapturePolicy.allTypes(on: pasteboard)
+        XCTAssertEqual(CountingPasteboard.itemReads, 1, "a local copy still has its items looked at")
+    }
+
+    /// Paused history: the pasteboard is asked nothing at all, neither by
+    /// the history nor by the screenshot collector.
+    func testPausedHistoryAsksThePasteboardNothing() {
+        let originalClass: AnyClass = object_getClass(pasteboard!) ?? NSPasteboard.self
+        object_setClass(pasteboard, CountingPasteboard.self)
+        let wasPaused = Defaults[.clipboardHistoryPaused]
+        defer {
+            Defaults[.clipboardHistoryPaused] = wasPaused
+            object_setClass(pasteboard, originalClass)
+            CountingPasteboard.reset()
+        }
+        Defaults[.clipboardHistoryPaused] = true
+        let collector = ClipboardScreenshotCollector(pasteboard: pasteboard, folder: directory) { _, _ in
+            XCTFail("nothing is collected while paused")
+        }
+        let promised = PromisedPasteboardData(promising: [(.png, pngData())],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        CountingPasteboard.reset()
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: nil), .paused)
+        XCTAssertNil(ClipboardScreenshotCollector.capture(from: pasteboard, sourceBundleID: nil))
+        collector.poll()   // what the watcher calls on a change, log line included
+        XCTAssertEqual(CountingPasteboard.typeReads, 0)
+        XCTAssertEqual(CountingPasteboard.itemReads, 0)
+        XCTAssertEqual(promised.read, [])
         settle()
-        XCTAssertEqual(manager.clipboardHistory.first?.type, .rtf)
-        XCTAssertEqual(promised.read, [.rtf])
+        XCTAssertTrue(manager.clipboardHistory.isEmpty)
+    }
+
+    /// A rich copy from the phone with a picture: no RTF, HTML, text or
+    /// picture is read.
+    func testAPhoneCopyWithRichTextIsNotRead() {
+        let rtf = NSAttributedString(string: "Hello").rtf(from: NSRange(location: 0, length: 5), documentAttributes: [:])!
+        let promised = PromisedPasteboardData(promising: [(.rtf, rtf), (.html, Data("<b>Hello</b>".utf8)),
+                                                          (.string, Data("Hello".utf8)), (.png, pngData())],
+                                              eager: [(ClipboardCapturePolicy.remoteMarker, "1")])
+        promised.write(to: pasteboard)
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: nil), .remote)
+        settle()
+        XCTAssertEqual(promised.read, [])
+        XCTAssertTrue(manager.clipboardHistory.isEmpty)
     }
 
     /// With clipboard screenshots going to the Screenshots tab, a phone
@@ -497,6 +710,72 @@ final class ClipboardTabManagerTests: XCTestCase {
         XCTAssertEqual(ClipboardRepresentation.imageTypes(in: [.string, .tiff, .png]), [.png, .tiff])
         XCTAssertEqual(ClipboardRepresentation.imageTypes(in: [.init("public.jpeg"), .html]), [.init("public.jpeg")])
         XCTAssertEqual(ClipboardRepresentation.imageTypes(in: [.string, .rtf]), [])
+    }
+}
+
+// MARK: - Cameras
+
+/// Luoto is no client of the iPhone's camera: no camera search while the
+/// mirror is hidden, and no listener on a Continuity camera.
+final class PhoneCameraTests: XCTestCase {
+    private func fourCC(_ code: String) -> UInt32 { code.utf8.reduce(0) { $0 << 8 | UInt32($1) } }
+
+    func testNoCameraIsSearchedWhileTheMirrorIsOff() {
+        XCTAssertFalse(MirrorFeature.isAvailable)
+        let saved = WebcamManager.discoverCameras
+        let lock = NSLock()
+        var searches = 0
+        WebcamManager.discoverCameras = { lock.lock(); searches += 1; lock.unlock(); return [] }
+        defer { WebcamManager.discoverCameras = saved }
+
+        let webcam = WebcamManager()
+        webcam.checkCameraAvailability()
+        webcam.checkAndRequestVideoAuthorization()
+        webcam.startSession()
+        // A camera plugged in (or an iPhone coming near) wakes no search.
+        NotificationCenter.default.post(name: AVCaptureDevice.wasConnectedNotification, object: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        lock.lock(); let count = searches; lock.unlock()
+        XCTAssertEqual(count, 0)
+        XCTAssertFalse(webcam.cameraAvailable)
+    }
+
+    @MainActor
+    func testContinuityCamerasGetNoListener() {
+        let saved = (CameraDevices.videoDeviceIDs, CameraDevices.transportType, CameraDevices.plugInBundleID,
+                     CameraDevices.addListener, CameraDevices.removeListener, CameraDevices.isRunningSomewhere)
+        defer {
+            (CameraDevices.videoDeviceIDs, CameraDevices.transportType, CameraDevices.plugInBundleID,
+             CameraDevices.addListener, CameraDevices.removeListener, CameraDevices.isRunningSomewhere) = saved
+        }
+        let builtIn: CMIOObjectID = 35, usb: CMIOObjectID = 50
+        // As macOS 26 shows an iPhone nearby: no transport type, served by
+        // the Continuity plug-in; and one reporting the wireless transport.
+        let phone: CMIOObjectID = 41, phoneDeskView: CMIOObjectID = 43, wirelessPhone: CMIOObjectID = 60
+        let agent = CameraDevices.continuityPlugInBundleID
+        let transports = [builtIn: fourCC("bltn"), usb: fourCC("usb "), wirelessPhone: fourCC("ccwl")]
+        let plugIns = [builtIn: "com.apple.cameracaptured", usb: "com.apple.cameracaptured", phone: agent, phoneDeskView: agent]
+        CameraDevices.videoDeviceIDs = { [builtIn, phone, phoneDeskView, usb, wirelessPhone] }
+        CameraDevices.transportType = { transports[$0] }
+        CameraDevices.plugInBundleID = { plugIns[$0] }
+        var listened: [CMIOObjectID] = [], removed: [CMIOObjectID] = [], asked: [CMIOObjectID] = []
+        CameraDevices.addListener = { id, _ in listened.append(id); return OSStatus(kCMIOHardwareNoError) }
+        CameraDevices.removeListener = { id, _ in removed.append(id); return OSStatus(kCMIOHardwareNoError) }
+        CameraDevices.isRunningSomewhere = { asked.append($0); return false }
+
+        let monitor = CameraMonitor()
+        monitor.startMonitoring()
+        XCTAssertEqual(listened, [builtIn, usb], "the iPhone's cameras get no listener")
+        XCTAssertEqual(asked, [builtIn, usb], "nor a running check")
+        XCTAssertFalse(monitor.isCameraActive)
+
+        // The built-in camera still lights the indicator.
+        CameraDevices.isRunningSomewhere = { $0 == builtIn }
+        monitor.checkCameraStatus()
+        XCTAssertTrue(monitor.isCameraActive)
+
+        monitor.stopMonitoring()
+        XCTAssertEqual(removed, [builtIn, usb])
     }
 }
 

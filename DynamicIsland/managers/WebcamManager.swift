@@ -67,8 +67,24 @@ class WebcamManager: NSObject, ObservableObject {
     
     // MARK: - Properties
     
-    private override init() {
+    /// Finds the cameras the mirror can show. Every search makes Luoto a
+    /// camera client (AVFoundation then follows every camera, the iPhone's
+    /// Continuity Camera too), so it runs only while the mirror exists.
+    /// Replaced in tests, which count the calls.
+    static var discoverCameras: () -> [AVCaptureDevice] = {
+        AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.external, .builtInWideAngleCamera, .deskViewCamera, .externalUnknown],
+            mediaType: .video,
+            position: .unspecified
+        ).devices
+    }
+
+    /// Internal, not private, so tests can make one apart from `shared`.
+    override init() {
         super.init()
+        // The mirror is hidden: no camera search and no camera observers,
+        // so Luoto is no camera client at all.
+        guard MirrorFeature.isAvailable else { return }
         NotificationCenter.default.addObserver(self, selector: #selector(deviceWasDisconnected), name: .AVCaptureDeviceWasDisconnected, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(deviceWasConnected), name: .AVCaptureDeviceWasConnected, object: nil)
         checkCameraAvailability()
@@ -125,11 +141,8 @@ class WebcamManager: NSObject, ObservableObject {
     
     /// Checks if any camera devices are available and sets up capture session if needed
     func checkCameraAvailability() {
-        let availableDevices = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.external, .builtInWideAngleCamera, .deskViewCamera, .externalUnknown],
-            mediaType: .video,
-            position: .unspecified
-        ).devices
+        guard MirrorFeature.isAvailable else { return }
+        let availableDevices = Self.discoverCameras()
         
         let hasAvailableDevices = !availableDevices.isEmpty
         
@@ -154,13 +167,7 @@ class WebcamManager: NSObject, ObservableObject {
             
             do {
                 // Get available devices
-                let discoverySession = AVCaptureDevice.DiscoverySession(
-                    deviceTypes: [.external, .builtInWideAngleCamera, .deskViewCamera, .externalUnknown],
-                    mediaType: .video,
-                    position: .unspecified
-                )
-                
-                let devices = discoverySession.devices
+                let devices = Self.discoverCameras()
                 let selectedID = Defaults[.selectedCameraID]
                 
                 let videoDevice: AVCaptureDevice?
@@ -284,6 +291,7 @@ class WebcamManager: NSObject, ObservableObject {
     }
     
     func startSession() {
+        guard MirrorFeature.isAvailable else { return }
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
             

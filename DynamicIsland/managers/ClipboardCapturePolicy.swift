@@ -26,6 +26,10 @@ enum ClipboardCapturePolicy {
         /// The pasteboard carries a marker that password managers and similar
         /// tools put on secrets and throwaway copies (see nspasteboard.org).
         case concealed
+        /// Made on the iPhone, iPad or another Mac (Universal Clipboard): its
+        /// data is only a promise, and Luoto reads none of it. Only the types
+        /// were looked at; the app it is pasted into fetches the data itself.
+        case remote
         /// The copy was made in an app the user asked to ignore.
         case ignoredApp
         /// Written by Luoto itself (see ClipboardOwnWrites).
@@ -55,8 +59,9 @@ enum ClipboardCapturePolicy {
 
     /// What macOS puts on a copy made on the iPhone or another Mac (Universal
     /// Clipboard). Its data is only a promise: reading it pulls the content
-    /// over the network. Luoto never pulls a picture from such a copy by
-    /// itself; the app it is pasted into still gets it as before.
+    /// over the network. Luoto never reads any of it by itself (no text, rich
+    /// text, link, file or picture); the app it is pasted into still gets it
+    /// as before. A paste the user asks for (Notes) may still read it.
     static let remoteMarker = NSPasteboard.PasteboardType("com.apple.is-remote-clipboard")
 
     static func isRemote(_ types: [NSPasteboard.PasteboardType]) -> Bool {
@@ -71,14 +76,63 @@ enum ClipboardCapturePolicy {
     ) -> Decision {
         if isPaused { return .paused }
         if types.contains(where: concealedTypes.contains) { return .concealed }
+        // Types only: the marker is enough, no data is asked for.
+        if isRemote(types) { return .remote }
         if let sourceBundleID, ignoredApps.contains(sourceBundleID) { return .ignoredApp }
         return .record
     }
 
+    /// Reads the types once, notes whether the copy came from another device
+    /// (`lastSeen`), and decides. `changeCount` is the count the caller saw;
+    /// nil reads it here.
+    static func decide(
+        on pasteboard: NSPasteboard,
+        changeCount: Int?,
+        sourceBundleID: String?,
+        isPaused: Bool,
+        ignoredApps: [String]
+    ) -> Decision {
+        // Paused: the pasteboard is not asked anything, not even its types.
+        if isPaused { return .paused }
+        let count = changeCount ?? pasteboard.changeCount
+        let types = allTypes(on: pasteboard)
+        note(remote: isRemote(types), changeCount: count, on: pasteboard)
+        return decide(types: types, sourceBundleID: sourceBundleID, isPaused: isPaused, ignoredApps: ignoredApps)
+    }
+
+    // MARK: - What the last look saw
+
+    /// Whether a change came from another device, as the history or the
+    /// screenshot collector saw it while deciding. The watcher's slow-look
+    /// line reads this, so that line asks the pasteboard for nothing.
+    struct Seen: Equatable {
+        let pasteboardName: String
+        let changeCount: Int
+        let remote: Bool
+    }
+
+    /// Main thread only, like every look at the clipboard.
+    private(set) static var lastSeen: Seen?
+
+    static func note(remote: Bool, changeCount: Int, on pasteboard: NSPasteboard) {
+        lastSeen = Seen(pasteboardName: pasteboard.name.rawValue, changeCount: changeCount, remote: remote)
+    }
+
+    /// Yes/no when this change was decided on, nil when nothing looked at it.
+    static func seenRemote(changeCount: Int, pasteboardName: String) -> Bool? {
+        guard let lastSeen, lastSeen.changeCount == changeCount,
+              lastSeen.pasteboardName == pasteboardName else { return nil }
+        return lastSeen.remote
+    }
+
     /// Every type on the pasteboard, across all of its items: a marker may sit
     /// on any item, not only the first one that `NSPasteboard.types` reports.
+    /// A copy from another device stops at `types`: its marker is already
+    /// there, and every further question to the pasteboard is one more
+    /// request that can wait on the phone.
     static func allTypes(on pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         var types = pasteboard.types ?? []
+        if isRemote(types) { return types }
         for item in pasteboard.pasteboardItems ?? [] {
             types.append(contentsOf: item.types)
         }

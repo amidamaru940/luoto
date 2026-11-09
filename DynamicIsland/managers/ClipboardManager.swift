@@ -22,6 +22,7 @@ import Combine
 import Foundation
 import UniformTypeIdentifiers
 import Defaults
+import OSLog
 
 // Clipboard item data structure
 struct ClipboardItem: Identifiable, Codable {
@@ -793,23 +794,38 @@ class ClipboardManager: ObservableObject {
         // was made in.
         captureChange(
             from: .general,
-            sourceBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            sourceBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+            changeCount: currentChangeCount
         )
     }
 
+    /// Where the one line per skipped copy from another device goes; tests
+    /// replace it. Public: only the change count, no content, no types.
+    static var logRemoteSkip: (String) -> Void = { message in
+        os_log("%{public}@", log: ClipboardChangeWatcher.log, type: .default, message)
+    }
+
     /// Adds the pasteboard's content to the history unless the capture policy
-    /// refuses it (paused, concealed/transient markers, ignored source app).
+    /// refuses it (paused, concealed/transient markers, a copy from the iPhone
+    /// or another Mac, ignored source app). Up to the policy's answer only the
+    /// types are looked at, so a refused copy has none of its data read.
     /// Takes the pasteboard as a parameter so tests can use a private one
-    /// instead of the user's clipboard.
+    /// instead of the user's clipboard. `changeCount` is the count the caller
+    /// saw; nil reads it here.
     @discardableResult
-    func captureChange(from pasteboard: NSPasteboard, sourceBundleID: String?) -> ClipboardCapturePolicy.Decision {
+    func captureChange(from pasteboard: NSPasteboard, sourceBundleID: String?, changeCount: Int? = nil) -> ClipboardCapturePolicy.Decision {
+        // Paused: nothing is read, not even whether the copy is our own.
+        if Defaults[.clipboardHistoryPaused] { return .paused }
         if ClipboardOwnWrites.isOwnWrite(pasteboard) { return .ownWrite }
+        let count = changeCount ?? pasteboard.changeCount
         let decision = ClipboardCapturePolicy.decide(
-            types: ClipboardCapturePolicy.allTypes(on: pasteboard),
+            on: pasteboard,
+            changeCount: count,
             sourceBundleID: sourceBundleID,
             isPaused: Defaults[.clipboardHistoryPaused],
             ignoredApps: Defaults[.clipboardIgnoredApps]
         )
+        if decision == .remote { Self.logRemoteSkip("remote change \(count) skipped") }
         guard decision == .record else { return decision }
         if ClipboardScreenshotDetector.routesToScreenshots, ClipboardScreenshotDetector.isScreenshot(pasteboard) {
             ClipboardShotLog.note("history: change \(pasteboard.changeCount) routed to screenshots")
@@ -883,10 +899,9 @@ class ClipboardManager: ObservableObject {
         
         // Priority 2: If there's ONLY image data without file URLs (screenshots, direct image paste)
         // PNG, then TIFF, then JPEG, as before; a listed type whose data does not come
-        // falls through to the next one. Not for a picture copied on the iPhone:
-        // reading it would pull it over the network before anyone pastes it.
-        let isRemote = ClipboardCapturePolicy.isRemote(ClipboardCapturePolicy.allTypes(on: pasteboard))
-        if hasImageData && !hasFileURLs && !isRemote {
+        // falls through to the next one. A copy from the iPhone never gets here:
+        // `captureChange` stops it as `.remote` before anything is read.
+        if hasImageData && !hasFileURLs {
             for type in imageTypes {
                 if let imageData = pasteboard.data(forType: type) {
                     return ClipboardItem(imageData: imageData)

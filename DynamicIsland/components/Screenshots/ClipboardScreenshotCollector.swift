@@ -93,9 +93,10 @@ final class ClipboardScreenshotCollector {
         guard count != lastChangeCount else { return }
         lastChangeCount = count
         let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        // Types only: no picture data and no process list for a log line.
-        ClipboardShotLog.note("change \(count): onlyPicture=\(ClipboardScreenshotDetector.holdsOnlyAPicture(pasteboard))")
-        guard let shot = Self.capture(from: pasteboard, sourceBundleID: source) else { return }
+        // The count only: the clipboard is asked nothing for a log line
+        // before the rules have decided (paused, another device...).
+        ClipboardShotLog.note("change \(count)")
+        guard let shot = Self.capture(from: pasteboard, sourceBundleID: source, changeCount: count) else { return }
         // More of a burst may follow (the toolbar's timer, a held shortcut).
         if isRunning { watcher.burst() }
         let date = Date()
@@ -127,20 +128,27 @@ final class ClipboardScreenshotCollector {
     }
 
     /// The clipboard picture when it is a screenshot the clipboard rules
-    /// allow; nil otherwise.
-    static func capture(from pasteboard: NSPasteboard, sourceBundleID: String?) -> Shot? {
+    /// allow; nil otherwise. `changeCount` is the count the caller saw; nil
+    /// reads it here.
+    static func capture(from pasteboard: NSPasteboard, sourceBundleID: String?, changeCount: Int? = nil) -> Shot? {
         let decision = ClipboardCapturePolicy.decide(
-            types: ClipboardCapturePolicy.allTypes(on: pasteboard),
+            on: pasteboard,
+            changeCount: changeCount,
             sourceBundleID: sourceBundleID,
             isPaused: Defaults[.clipboardHistoryPaused],
             ignoredApps: Defaults[.clipboardIgnoredApps]
         )
-        guard decision == .record,
-              !ClipboardOwnWrites.isOwnWrite(pasteboard),
+        // Refused (paused, another device...): nothing more is asked of the
+        // pasteboard, not even for the log line.
+        guard decision == .record else {
+            ClipboardShotLog.note("not saved: decision=\(decision)")
+            return nil
+        }
+        guard !ClipboardOwnWrites.isOwnWrite(pasteboard),
               ClipboardScreenshotDetector.holdsOnlyAPicture(pasteboard),
               ClipboardScreenshotDetector.looksTaken(pasteboard),
               let shot = rawPicture(from: pasteboard) else {
-            ClipboardShotLog.note("not saved: decision=\(decision) own=\(ClipboardOwnWrites.isOwnWrite(pasteboard))")
+            ClipboardShotLog.note("not saved: own=\(ClipboardOwnWrites.isOwnWrite(pasteboard))")
             return nil
         }
         return shot

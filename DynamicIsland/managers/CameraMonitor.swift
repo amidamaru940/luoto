@@ -40,6 +40,115 @@ private func cameraPropertyListener(
     return OSStatus(kCMIOHardwareNoError)
 }
 
+private var runningSomewhereAddress = CMIOObjectPropertyAddress(
+    mSelector: CMIOObjectPropertySelector(kCMIODevicePropertyDeviceIsRunningSomewhere),
+    mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeWildcard),
+    mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementWildcard)
+)
+
+/// The camera hardware `CameraMonitor` talks to, one replaceable function per
+/// call so tests can hand it made-up devices and see where listeners go.
+enum CameraDevices {
+    /// Transport types (`kCMIODevicePropertyTransportType`, values from
+    /// CoreAudio's `kAudioDeviceTransportType…`) of an iPhone or iPad used as
+    /// the Mac's camera: 'ccwl' wireless, 'ccwd' by cable, 'ccap' (macOS 13).
+    static let continuityTransportTypes: Set<UInt32> = [0x6363_776C, 0x6363_7764, 0x6363_6170]
+    /// The plug-in that serves Continuity Camera. Checked on macOS 26: the
+    /// iPhone's cameras have no transport type at all, only this plug-in.
+    static let continuityPlugInBundleID = "com.apple.cmio.ContinuityCaptureAgent"
+
+    /// Every CMIO device with a video input stream.
+    static var videoDeviceIDs: () -> [CMIOObjectID] = { allVideoDeviceIDs() }
+    /// The device's transport type; nil when it has none.
+    static var transportType: (CMIOObjectID) -> UInt32? = { readTransportType(of: $0) }
+    /// The bundle identifier of the plug-in that serves the device.
+    static var plugInBundleID: (CMIOObjectID) -> String? = { readPlugInBundleID(of: $0) }
+    static var addListener: (CMIOObjectID, UnsafeMutableRawPointer) -> OSStatus = { deviceID, context in
+        CMIOObjectAddPropertyListener(deviceID, &runningSomewhereAddress, cameraPropertyListener, context)
+    }
+    static var removeListener: (CMIOObjectID, UnsafeMutableRawPointer) -> OSStatus = { deviceID, context in
+        CMIOObjectRemovePropertyListener(deviceID, &runningSomewhereAddress, cameraPropertyListener, context)
+    }
+    static var isRunningSomewhere: (CMIOObjectID) -> Bool = { deviceID in
+        var isRunning: UInt32 = 0
+        var dataSize = UInt32(MemoryLayout<UInt32>.size)
+        let status = CMIOObjectGetPropertyData(deviceID, &runningSomewhereAddress, 0, nil, dataSize, &dataSize, &isRunning)
+        return status == OSStatus(kCMIOHardwareNoError) && isRunning != 0
+    }
+    /// An iPhone or iPad camera: Luoto leaves it alone, no listener and no
+    /// running check, so the camera indicator stays dark for it.
+    static func isContinuityCamera(_ deviceID: CMIOObjectID) -> Bool {
+        if let transport = transportType(deviceID), continuityTransportTypes.contains(transport) { return true }
+        return plugInBundleID(deviceID) == continuityPlugInBundleID
+    }
+
+    /// The video devices Luoto watches: all but the Continuity cameras.
+    static func watchedDeviceIDs() -> [CMIOObjectID] {
+        videoDeviceIDs().filter { !isContinuityCamera($0) }
+    }
+
+    private static func address(_ selector: Int, scope: Int = Int(kCMIOObjectPropertyScopeGlobal)) -> CMIOObjectPropertyAddress {
+        CMIOObjectPropertyAddress(
+            mSelector: CMIOObjectPropertySelector(selector),
+            mScope: CMIOObjectPropertyScope(scope),
+            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain)
+        )
+    }
+
+    private static func allVideoDeviceIDs() -> [CMIOObjectID] {
+        var propertyAddress = address(Int(kCMIOHardwarePropertyDevices))
+        var dataSize: UInt32 = 0
+        var status = CMIOObjectGetPropertyDataSize(CMIOObjectID(kCMIOObjectSystemObject), &propertyAddress, 0, nil, &dataSize)
+        guard status == OSStatus(kCMIOHardwareNoError), dataSize > 0 else {
+            print("CameraMonitor: ⚠️ Failed to get devices data size (status: \(status))")
+            return []
+        }
+        let deviceCount = Int(dataSize) / MemoryLayout<CMIOObjectID>.size
+        var devices = [CMIOObjectID](repeating: 0, count: deviceCount)
+        status = CMIOObjectGetPropertyData(CMIOObjectID(kCMIOObjectSystemObject), &propertyAddress, 0, nil, dataSize, &dataSize, &devices)
+        guard status == OSStatus(kCMIOHardwareNoError) else {
+            print("CameraMonitor: ⚠️ Failed to get devices (status: \(status))")
+            return []
+        }
+        return devices.filter(hasVideoInput)
+    }
+
+    /// Whether the device has video input streams.
+    private static func hasVideoInput(_ deviceID: CMIOObjectID) -> Bool {
+        var propertyAddress = address(Int(kCMIODevicePropertyStreams), scope: Int(kCMIODevicePropertyScopeInput))
+        var dataSize: UInt32 = 0
+        let status = CMIOObjectGetPropertyDataSize(deviceID, &propertyAddress, 0, nil, &dataSize)
+        return status == OSStatus(kCMIOHardwareNoError) && dataSize > 0
+    }
+
+    /// Asked only when the device has the property: asking a device without
+    /// it is an error in the system log.
+    private static func readTransportType(of deviceID: CMIOObjectID) -> UInt32? {
+        var propertyAddress = address(Int(kCMIODevicePropertyTransportType))
+        guard CMIOObjectHasProperty(deviceID, &propertyAddress) else { return nil }
+        var value: UInt32 = 0
+        var dataSize = UInt32(MemoryLayout<UInt32>.size)
+        let status = CMIOObjectGetPropertyData(deviceID, &propertyAddress, 0, nil, dataSize, &dataSize, &value)
+        return status == OSStatus(kCMIOHardwareNoError) ? value : nil
+    }
+
+    private static func readPlugInBundleID(of deviceID: CMIOObjectID) -> String? {
+        var plugInAddress = address(Int(kCMIODevicePropertyPlugIn))
+        guard CMIOObjectHasProperty(deviceID, &plugInAddress) else { return nil }
+        var plugIn = CMIOObjectID(0)
+        var dataSize = UInt32(MemoryLayout<CMIOObjectID>.size)
+        guard CMIOObjectGetPropertyData(deviceID, &plugInAddress, 0, nil, dataSize, &dataSize, &plugIn) == OSStatus(kCMIOHardwareNoError) else { return nil }
+        var bundleAddress = address(Int(kCMIOPlugInPropertyBundleID))
+        guard CMIOObjectHasProperty(plugIn, &bundleAddress) else { return nil }
+        var bundleID: Unmanaged<CFString>?
+        dataSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard CMIOObjectGetPropertyData(plugIn, &bundleAddress, 0, nil, dataSize, &dataSize, &bundleID) == OSStatus(kCMIOHardwareNoError) else { return nil }
+        // CMIOHardware.h, kCMIOPlugInPropertyBundleID: "The caller is
+        // responsible for releasing the returned CFObject", so it comes +1.
+        return bundleID?.takeRetainedValue() as String?
+    }
+}
+
 @MainActor
 class CameraMonitor: ObservableObject {
     // MARK: - Published Properties
@@ -63,21 +172,9 @@ class CameraMonitor: ObservableObject {
     deinit {
         // Clean up listeners synchronously
         if isListenerRegistered, !cameraDeviceIDs.isEmpty {
-            var propertyAddress = CMIOObjectPropertyAddress(
-                mSelector: CMIOObjectPropertySelector(kCMIODevicePropertyDeviceIsRunningSomewhere),
-                mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeWildcard),
-                mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementWildcard)
-            )
-            
             let context = Unmanaged.passUnretained(self).toOpaque()
-            
             for deviceID in cameraDeviceIDs {
-                CMIOObjectRemovePropertyListener(
-                    deviceID,
-                    &propertyAddress,
-                    cameraPropertyListener,
-                    context
-                )
+                _ = CameraDevices.removeListener(deviceID, context)
             }
         }
     }
@@ -110,7 +207,7 @@ class CameraMonitor: ObservableObject {
         // Check initial state
         checkCameraStatus()
         
-        print("CameraMonitor: ✅ Started monitoring (event-driven CMIO + AVFoundation check)")
+        print("CameraMonitor: ✅ Started monitoring (event-driven CMIO)")
     }
     
     /// Stop monitoring camera usage
@@ -149,96 +246,26 @@ class CameraMonitor: ObservableObject {
     
     // MARK: - Private Methods
     
-    /// Enumerate all camera devices using CoreMediaIO
+    /// The camera devices to watch, from CoreMediaIO: every video input
+    /// except the iPhone's or iPad's Continuity cameras.
     private func enumerateCameraDevices() -> [CMIOObjectID] {
-        var propertyAddress = CMIOObjectPropertyAddress(
-            mSelector: CMIOObjectPropertySelector(kCMIOHardwarePropertyDevices),
-            mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
-            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain)
-        )
-        
-        var dataSize: UInt32 = 0
-        var status = CMIOObjectGetPropertyDataSize(
-            CMIOObjectID(kCMIOObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            &dataSize
-        )
-        
-        guard status == OSStatus(kCMIOHardwareNoError), dataSize > 0 else {
-            print("CameraMonitor: ⚠️ Failed to get devices data size (status: \(status))")
-            return []
-        }
-        
-        let deviceCount = Int(dataSize) / MemoryLayout<CMIOObjectID>.size
-        var devices = [CMIOObjectID](repeating: 0, count: deviceCount)
-        
-        status = CMIOObjectGetPropertyData(
-            CMIOObjectID(kCMIOObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            dataSize,
-            &dataSize,
-            &devices
-        )
-        
-        guard status == OSStatus(kCMIOHardwareNoError) else {
-            print("CameraMonitor: ⚠️ Failed to get devices (status: \(status))")
-            return []
-        }
-        
-        // Filter for video input devices
-        let videoDevices = devices.filter { deviceID in
-            return isVideoInputDevice(deviceID)
-        }
-        
-        return videoDevices
+        CameraDevices.watchedDeviceIDs()
     }
-    
-    /// Check if device is a video input device
-    private func isVideoInputDevice(_ deviceID: CMIOObjectID) -> Bool {
-        // Check if device has video input streams
-        var propertyAddress = CMIOObjectPropertyAddress(
-            mSelector: CMIOObjectPropertySelector(kCMIODevicePropertyStreams),
-            mScope: CMIOObjectPropertyScope(kCMIODevicePropertyScopeInput),
-            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain)
-        )
-        
-        var dataSize: UInt32 = 0
-        let status = CMIOObjectGetPropertyDataSize(
-            deviceID,
-            &propertyAddress,
-            0,
-            nil,
-            &dataSize
-        )
-        
-        return status == OSStatus(kCMIOHardwareNoError) && dataSize > 0
-    }
+
+    /// The devices that got a listener; for tests.
+    var watchedDeviceIDs: [CMIOObjectID] { cameraDeviceIDs }
     
     /// Setup CoreMediaIO property listener
     private func setupPropertyListener() {
         guard !cameraDeviceIDs.isEmpty else { return }
         
         // Listen for device running state changes
-        var propertyAddress = CMIOObjectPropertyAddress(
-            mSelector: CMIOObjectPropertySelector(kCMIODevicePropertyDeviceIsRunningSomewhere),
-            mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeWildcard),
-            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementWildcard)
-        )
-        
         let context = Unmanaged.passUnretained(self).toOpaque()
         
-        // Add listener for each camera device
+        // Add listener for each camera device (Continuity cameras were left
+        // out by enumerateCameraDevices)
         for deviceID in cameraDeviceIDs {
-            let status = CMIOObjectAddPropertyListener(
-                deviceID,
-                &propertyAddress,
-                cameraPropertyListener,
-                context
-            )
+            let status = CameraDevices.addListener(deviceID, context)
             
             if status == OSStatus(kCMIOHardwareNoError) {
                 print("CameraMonitor: ✅ Property listener registered for device \(deviceID)")
@@ -253,21 +280,10 @@ class CameraMonitor: ObservableObject {
     private func removePropertyListener() {
         guard !cameraDeviceIDs.isEmpty else { return }
         
-        var propertyAddress = CMIOObjectPropertyAddress(
-            mSelector: CMIOObjectPropertySelector(kCMIODevicePropertyDeviceIsRunningSomewhere),
-            mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeWildcard),
-            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementWildcard)
-        )
-        
         let context = Unmanaged.passUnretained(self).toOpaque()
         
         for deviceID in cameraDeviceIDs {
-            let status = CMIOObjectRemovePropertyListener(
-                deviceID,
-                &propertyAddress,
-                cameraPropertyListener,
-                context
-            )
+            let status = CameraDevices.removeListener(deviceID, context)
             
             if status == OSStatus(kCMIOHardwareNoError) {
                 print("CameraMonitor: ✅ Property listener removed for device \(deviceID)")
@@ -283,64 +299,16 @@ class CameraMonitor: ObservableObject {
     private func checkCameraStatusCMIO() -> Bool {
         guard !cameraDeviceIDs.isEmpty else { return false }
         
-        var propertyAddress = CMIOObjectPropertyAddress(
-            mSelector: CMIOObjectPropertySelector(kCMIODevicePropertyDeviceIsRunningSomewhere),
-            mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeWildcard),
-            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementWildcard)
-        )
-        
         // Check if any camera device is running
-        for deviceID in cameraDeviceIDs {
-            var isRunning: UInt32 = 0
-            var dataSize = UInt32(MemoryLayout<UInt32>.size)
-            
-            let status = CMIOObjectGetPropertyData(
-                deviceID,
-                &propertyAddress,
-                0,
-                nil,
-                dataSize,
-                &dataSize,
-                &isRunning
-            )
-            
-            if status == OSStatus(kCMIOHardwareNoError) && isRunning != 0 {
-                return true
-            }
-        }
-        
-        return false
+        return cameraDeviceIDs.contains { CameraDevices.isRunningSomewhere($0) }
     }
     
-    /// Check current camera status (AVFoundation fallback)
-    private func checkCameraStatusAVFoundation() -> Bool {
-        // Use AVFoundation to check if any camera is in use
-        let discoverySession = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInWideAngleCamera, .external],
-            mediaType: .video,
-            position: .unspecified
-        )
-        
-        for device in discoverySession.devices {
-            if device.isInUseByAnotherApplication {
-                return true
-            }
-        }
-        
-        return false
-    }
-    
-    /// Check current camera status (hybrid approach)
+    /// Check current camera status. CMIO only: an AVFoundation discovery
+    /// session made Luoto a capture client, and AVFoundation then worked on
+    /// the main thread every time the iPhone's camera came into range.
     func checkCameraStatus() {
-        // Try CMIO first, fallback to AVFoundation
-        let isCMIOActive = checkCameraStatusCMIO()
-        let isAVActive = checkCameraStatusAVFoundation()
-        
-        // Use OR logic - either method detects usage
-        let isActive = isCMIOActive || isAVActive
-        
-        // Debug logging
-        print("CameraMonitor: 🔍 Checking... current=\(isCameraActive), CMIO=\(isCMIOActive), AV=\(isAVActive), final=\(isActive)")
+        let isActive = checkCameraStatusCMIO()
+        print("CameraMonitor: 🔍 Checking... current=\(isCameraActive), CMIO=\(isActive)")
         
         // Update state if changed
         if isActive != isCameraActive {
@@ -373,10 +341,6 @@ extension CameraMonitor {
     
     /// Check if monitoring is available
     var isMonitoringAvailable: Bool {
-        return !enumerateCameraDevices().isEmpty || !AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInWideAngleCamera, .external],
-            mediaType: .video,
-            position: .unspecified
-        ).devices.isEmpty
+        return !enumerateCameraDevices().isEmpty
     }
 }

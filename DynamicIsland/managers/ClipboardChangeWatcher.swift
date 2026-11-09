@@ -19,6 +19,7 @@
 import AppKit
 import Combine
 import CoreGraphics
+import OSLog
 
 /// The one standing poll Luoto keeps: the pasteboard's `changeCount`, once a
 /// second with half a second of tolerance, and only while someone is at the
@@ -29,8 +30,15 @@ import CoreGraphics
 /// screen sleeps or locks (`ActivityGate`), and after a minute without any
 /// keyboard or pointer input: a copy needs a person, and the first input
 /// afterwards starts it again with an immediate look. A change made while it
-/// was stopped (Universal Clipboard, a password manager clearing the
+/// waited for input (Universal Clipboard, a password manager clearing the
 /// clipboard) is seen then, with what the clipboard holds at that moment.
+/// Leaving the Mac (lock, sleep, screen sleep) looks once more, so a copy
+/// made just before is kept. Coming back from a lock, a sleep or another
+/// user's session takes the count as seen: nobody copies in this session
+/// then, so the change came from another device, which Luoto leaves unread
+/// anyway. Coming back from a screen sleep with no lock in between (the
+/// password asked later, or not at all) looks at once, as scripts and
+/// remote desktop apps may write to the clipboard while the screen is dark.
 ///
 /// A burst of clipboard screenshots replaces the picture a few times a
 /// second, so `burst()` looks ten times a second for a few seconds. Only an
@@ -54,6 +62,8 @@ final class ClipboardChangeWatcher {
     typealias Listener = (Int) -> Void
 
     let pasteboard: NSPasteboard
+    /// Kept so the slow-look line asks the pasteboard for nothing.
+    private let pasteboardName: String
     private let gate: ActivityGate
     private let idleSeconds: () -> TimeInterval
     private var listeners: [UUID: Listener] = [:]
@@ -68,6 +78,9 @@ final class ClipboardChangeWatcher {
     private var screenshotEventMonitors: [Any] = []
     private let watchesScreenshotEvents: Bool
     private var gateSubscription: AnyCancellable?
+    private var stateSubscription: AnyCancellable?
+    /// The time away included a lock or a sleep, not only a dark screen.
+    private var awayLockedOrAsleep = false
 
     /// True while the look waits for input after the idle minute.
     private(set) var isWaitingForInput = false
@@ -79,6 +92,7 @@ final class ClipboardChangeWatcher {
          idleSeconds: @escaping () -> TimeInterval = ClipboardChangeWatcher.secondsSinceLastInput,
          watchesScreenshotEvents: Bool? = nil) {
         self.pasteboard = pasteboard
+        self.pasteboardName = pasteboard.name.rawValue
         self.gate = gate
         self.idleSeconds = idleSeconds
         self.watchesScreenshotEvents = watchesScreenshotEvents ?? (pasteboard === NSPasteboard.general)
@@ -89,17 +103,35 @@ final class ClipboardChangeWatcher {
         burstTimer = GatedTimer(name: "clipboard burst", interval: Self.burstInterval, tolerance: Self.burstInterval / 5, gate: gate) { [weak self] in
             self?.burstTick()
         }
-        // Back at the Mac (wake, unlock): look at once, then carry on. While
-        // away, nothing waits for input: the gate holds the timer.
+        // Leaving and coming back; see the type's comment. Looking at a
+        // phone copy right at the unlock asked the pasteboard while macOS
+        // was still fetching it from the phone and held the main thread for
+        // seconds (5.5 s on 09.11).
         gateSubscription = gate.publisher(for: .userPresent)
             .dropFirst()
             .sink { [weak self] present in
                 guard let self else { return }
                 self.stopWaitingForInput()
-                if present, !self.listeners.isEmpty {
-                    self.steady?.start()
+                let skipsTheTimeAway = present && self.awayLockedOrAsleep
+                if present { self.awayLockedOrAsleep = false }
+                guard !self.listeners.isEmpty else { return }
+                if present {
+                    if skipsTheTimeAway {
+                        self.lastChangeCount = self.pasteboard.changeCount
+                        self.steady?.start()
+                    } else {
+                        self.steady?.start()
+                        self.look()
+                    }
+                } else {
                     self.look()
                 }
+            }
+        // Set while away only (being present needs both); cleared above on
+        // the way back, so the two subscriptions may run in either order.
+        stateSubscription = gate.$state
+            .sink { [weak self] state in
+                if !state.unlocked || !state.systemAwake || !state.sessionActive { self?.awayLockedOrAsleep = true }
             }
     }
 
@@ -187,13 +219,84 @@ final class ClipboardChangeWatcher {
     }
 
     /// One look now, outside the schedule.
+    ///
+    /// Timed as a whole: `changeCount` and every listener (the history's
+    /// `captureChange`, the screenshot collector's `poll`). A look that held
+    /// the main thread longer than `slowLookThreshold` leaves one log line.
+    /// A look started inside a listener (a nested run loop, such as WebKit's
+    /// while it turns HTML into RTF, can fire a nudge or a tick) belongs to
+    /// the outer one: only the outermost look writes the line, and its
+    /// remote flag is that of the change the outer look saw, even when the
+    /// inner look has moved on to a newer one.
     func look() {
+        lookDepth += 1
+        let isOuter = lookDepth == 1
+        let started = isOuter ? Self.now() : 0
+        if isOuter {
+            outerRemoteBeforeNested = nil
+        } else if outerRemoteBeforeNested == nil {
+            // Before the inner look's listeners note their own change over it.
+            outerRemoteBeforeNested = .some(ClipboardCapturePolicy.seenRemote(
+                changeCount: outerChangeCount, pasteboardName: pasteboardName))
+        }
         let count = pasteboard.changeCount
+        if isOuter { outerChangeCount = count }
+        defer {
+            lookDepth -= 1
+            if lookDepth == 0 { reportIfSlow(since: started, changeCount: count) }
+        }
         guard count != lastChangeCount else { return }
         lastChangeCount = count
         for listener in Array(listeners.values) {
             listener(count)
         }
+    }
+
+    // MARK: - Slow looks
+
+    /// A look longer than this is written to the log.
+    static let slowLookThreshold: TimeInterval = 0.5
+    static let log = OSLog(subsystem: "io.github.amidamaru940.luoto", category: "clipboard")
+
+    /// Looks running now, the outermost one included.
+    private var lookDepth = 0
+    /// The change count the outermost look running now saw.
+    private var outerChangeCount = 0
+    /// What the outer look's change was noted as when the first nested look
+    /// began (`.some(nil)`: not decided yet); nil while no look is nested.
+    /// The policy keeps one change only, and the nested look's listeners
+    /// replace it with theirs.
+    private var outerRemoteBeforeNested: Bool??
+
+    /// Monotonic clock in nanoseconds; tests replace it.
+    static var now: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
+    /// Where the slow-look line goes; tests replace it. Public, because the
+    /// line holds only a duration and yes/no/?: no content, no type names.
+    static var logSlowLook: (String) -> Void = { message in
+        os_log("%{public}@", log: ClipboardChangeWatcher.log, type: .default, message)
+    }
+
+    /// Log readers match lines that begin with "clipboard look took": keep
+    /// that start as it is. `remote` is nil when no listener decided on the
+    /// change the look saw (no listener got that far). When nothing changed,
+    /// the flag repeats the state of the previous change, the one the look saw.
+    static func slowLookMessage(seconds: TimeInterval, remote: Bool?) -> String {
+        let flag = remote.map { $0 ? "yes" : "no" } ?? "?"
+        return "clipboard look took \(String(format: "%.1f", seconds)) s (remote=\(flag))"
+    }
+
+    /// Reads nothing from the pasteboard: whether the copy came from another
+    /// device is what the listeners noted while deciding on `changeCount`,
+    /// the change the outer look saw.
+    private func reportIfSlow(since started: UInt64, changeCount: Int) {
+        let beforeNested: Bool? = outerRemoteBeforeNested ?? nil
+        outerRemoteBeforeNested = nil
+        let ended = Self.now()
+        let seconds = TimeInterval(ended &- started) / 1_000_000_000
+        guard ended >= started, seconds > Self.slowLookThreshold else { return }
+        let remote = ClipboardCapturePolicy.seenRemote(changeCount: changeCount, pasteboardName: pasteboardName)
+            ?? beforeNested
+        Self.logSlowLook(Self.slowLookMessage(seconds: seconds, remote: remote))
     }
 
     // MARK: - Schedule
