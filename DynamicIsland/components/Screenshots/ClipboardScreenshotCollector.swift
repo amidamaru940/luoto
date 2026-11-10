@@ -115,9 +115,9 @@ final class ClipboardScreenshotCollector {
 
     /// The picture's bytes as the clipboard has them; no conversion yet.
     static func rawPicture(from pasteboard: NSPasteboard) -> Shot? {
-        if let png = pasteboard.data(forType: .png) { return Shot(data: png, isPNG: true) }
+        if let png = ClipboardChangeBytes.data(pasteboard, forType: .png) { return Shot(data: png, isPNG: true) }
         for type in [NSPasteboard.PasteboardType.tiff, .init("public.jpeg")] {
-            if let data = pasteboard.data(forType: type) { return Shot(data: data, isPNG: false) }
+            if let data = ClipboardChangeBytes.data(pasteboard, forType: type) { return Shot(data: data, isPNG: false) }
         }
         return nil
     }
@@ -144,10 +144,14 @@ final class ClipboardScreenshotCollector {
             ClipboardShotLog.note("not saved: decision=\(decision)")
             return nil
         }
-        guard !ClipboardOwnWrites.isOwnWrite(pasteboard),
-              ClipboardScreenshotDetector.holdsOnlyAPicture(pasteboard),
-              ClipboardScreenshotDetector.looksTaken(pasteboard),
-              let shot = rawPicture(from: pasteboard) else {
+        // The size check and the save read the picture once between them.
+        let shot = ClipboardChangeBytes.during(pasteboard) { () -> Shot? in
+            guard !ClipboardOwnWrites.isOwnWrite(pasteboard),
+                  ClipboardScreenshotDetector.holdsOnlyAPicture(pasteboard),
+                  ClipboardScreenshotDetector.looksTaken(pasteboard) else { return nil }
+            return rawPicture(from: pasteboard)
+        }
+        guard let shot else {
             ClipboardShotLog.note("not saved: own=\(ClipboardOwnWrites.isOwnWrite(pasteboard))")
             return nil
         }

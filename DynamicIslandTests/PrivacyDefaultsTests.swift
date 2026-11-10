@@ -97,6 +97,194 @@ final class ClipboardPrivacyTests: XCTestCase {
         manager.clipboardHistory.contains { $0.stringData == text }
     }
 
+    // MARK: Large copies do not stall the island
+
+    private func copyRich(_ pairs: [(NSPasteboard.PasteboardType, Data)]) {
+        pasteboard.clearContents()
+        pasteboard.declareTypes(pairs.map(\.0), owner: nil)
+        for (type, data) in pairs { pasteboard.setData(data, forType: type) }
+    }
+
+    /// A web page's HTML of about `bytes`, with the markup a browser puts there.
+    private func pageHTML(bytes: Int) -> (html: Data, plain: String) {
+        let paragraph = "<p style=\"color:#333\"><b>Строка</b> текста <span class=\"k\">с разметкой</span> и <a href=\"#\">ссылкой</a>.</p>\n"
+        let count = bytes / paragraph.utf8.count + 1
+        let html = "<html><body>" + String(repeating: paragraph, count: count) + "</body></html>"
+        return (Data(html.utf8), String(repeating: "Строка текста с разметкой и ссылкой.\n", count: count))
+    }
+
+    /// The fastest of three captures of the same copy: one slow run on a
+    /// busy Mac is not the code's cost.
+    private func timeCapture() -> TimeInterval {
+        (0..<3).map { _ in
+            let start = Date()
+            XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: "com.google.Chrome"), .record)
+            return Date().timeIntervalSince(start)
+        }.min()!
+    }
+
+    func testALargeWebPageCopyIsTakenAsPlainTextWithoutParsingIt() {
+        for megabytes in [1, 3] {
+            let page = pageHTML(bytes: megabytes * 1_000_000)
+            copyRich([(.html, page.html), (.string, Data(page.plain.utf8))])
+            let took = timeCapture()
+            XCTAssertLessThan(took, 0.1, "\(megabytes) MB of HTML: \(took) s")
+            settle()
+            XCTAssertEqual(manager.clipboardHistory.first?.type, .text)
+            XCTAssertEqual(manager.clipboardHistory.first?.stringData, page.plain)
+        }
+    }
+
+    func testALargeRTFCopyIsTakenAsPlainTextWithoutParsingIt() {
+        let plain = String(repeating: "Абзац текста из документа Word с форматированием. ", count: 100_000)
+        let rtf = NSAttributedString(string: plain, attributes: [.font: NSFont.boldSystemFont(ofSize: 13)])
+            .rtf(from: NSRange(location: 0, length: (plain as NSString).length), documentAttributes: [:])!
+        XCTAssertGreaterThan(rtf.count, ClipboardItem.maxRTFBytes)
+        copyRich([(.rtf, rtf), (.string, Data(plain.utf8))])
+        let took = timeCapture()
+        XCTAssertLessThan(took, 0.1, "RTF of \(rtf.count) bytes: \(took) s")
+        settle()
+        XCTAssertEqual(manager.clipboardHistory.first?.type, .text)
+        XCTAssertEqual(manager.clipboardHistory.first?.stringData, plain)
+    }
+
+    func testASmallRichCopyKeepsItsFormatting() {
+        let page = pageHTML(bytes: 2_000)
+        copyRich([(.html, page.html), (.string, Data(page.plain.utf8))])
+        _ = timeCapture()
+        settle()
+        XCTAssertEqual(manager.clipboardHistory.first?.type, .rtf)
+        XCTAssertNotNil(manager.clipboardHistory.first?.rtfData)
+    }
+
+    func testALargeCopyWithOnlyHTMLIsStillKept() {
+        // A web app may put only HTML on the clipboard: parsed as before, so
+        // the copy is not lost.
+        let page = pageHTML(bytes: 200_000)
+        copyRich([(.html, page.html)])
+        XCTAssertFalse(pasteboard.richTextTooLargeToParse())
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: "com.google.Chrome"), .record)
+        settle()
+        XCTAssertFalse(manager.clipboardHistory.first?.stringData?.isEmpty ?? true)
+    }
+
+    func testHTMLUpTo150KBWithPlainTextIsStillParsed() {
+        let near = pageHTML(bytes: 140_000)
+        copyRich([(.html, near.html), (.string, Data(near.plain.utf8))])
+        XCTAssertFalse(pasteboard.richTextTooLargeToParse())
+        let over = pageHTML(bytes: 160_000)
+        copyRich([(.html, over.html), (.string, Data(over.plain.utf8))])
+        XCTAssertTrue(pasteboard.richTextTooLargeToParse())
+    }
+
+    func testALargeFormattedDocumentStartingWithALinkStaysText() {
+        let page = pageHTML(bytes: 1_000_000)
+        let plain = "https://example.com/sources\n" + page.plain
+        copyRich([(.html, page.html), (.string, Data(plain.utf8))])
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: "notion.id"), .record)
+        settle()
+        XCTAssertEqual(manager.clipboardHistory.first?.type, .text)
+        // A plain copied address is still a link.
+        copy("https://example.com/page")
+        XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: "com.google.Chrome"), .record)
+        settle()
+        XCTAssertEqual(manager.clipboardHistory.first?.type, .url)
+    }
+
+    func testAPictureIsReadFromThePasteboardOncePerChange() {
+        let first = Data([1, 2, 3])
+        copyRich([(.png, first)])
+        ClipboardChangeBytes.during(pasteboard) {
+            let before = ClipboardChangeBytes.pasteboardReads
+            XCTAssertEqual(ClipboardChangeBytes.data(pasteboard, forType: .png), first)
+            XCTAssertEqual(ClipboardChangeBytes.data(pasteboard, forType: .png), first)
+            XCTAssertEqual(ClipboardChangeBytes.pasteboardReads, before + 1, "one read for two asks")
+            XCTAssertEqual(ClipboardChangeBytes.data(pasteboard, forType: .png), first, "served again")
+            // A new change while handling one is read afresh, never served stale.
+            let second = Data([4, 5])
+            copyRich([(.png, second)])
+            XCTAssertEqual(ClipboardChangeBytes.data(pasteboard, forType: .png), second)
+        }
+        // Outside a change the pasteboard is read directly.
+        XCTAssertEqual(ClipboardChangeBytes.data(pasteboard, forType: .png), Data([4, 5]))
+    }
+
+    func testTheSameChangeSharesItsBytesAndAnotherKeepsItsOwn() {
+        copyRich([(.png, Data([1]))])
+        ClipboardChangeBytes.during(pasteboard) {
+            _ = ClipboardChangeBytes.data(pasteboard, forType: .png)
+            let reads = ClipboardChangeBytes.pasteboardReads
+            // The same change asked again inside: shared, no new read.
+            ClipboardChangeBytes.during(pasteboard) {
+                XCTAssertEqual(ClipboardChangeBytes.data(pasteboard, forType: .png), Data([1]))
+            }
+            XCTAssertEqual(ClipboardChangeBytes.pasteboardReads, reads)
+            // Another pasteboard inside: its own bytes, the outer kept after.
+            let other = NSPasteboard(name: NSPasteboard.Name("io.github.amidamaru940.luoto.tests.\(UUID().uuidString)"))
+            other.clearContents()
+            other.setData(Data([9]), forType: .png)
+            ClipboardChangeBytes.during(other) {
+                XCTAssertEqual(ClipboardChangeBytes.data(other, forType: .png), Data([9]))
+            }
+            other.releaseGlobally()
+            let afterInner = ClipboardChangeBytes.pasteboardReads
+            XCTAssertEqual(ClipboardChangeBytes.data(pasteboard, forType: .png), Data([1]))
+            XCTAssertEqual(ClipboardChangeBytes.pasteboardReads, afterInner, "the outer bytes came back")
+        }
+    }
+
+    func testEveryChangeIsHandledInsideOneReadOfItsBytes() {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let manager = try! String(contentsOf: root.appendingPathComponent("DynamicIsland/managers/ClipboardManager.swift"), encoding: .utf8)
+        XCTAssertTrue(manager.contains("return ClipboardChangeBytes.during(pasteboard) {\n            recordChange("))
+        let collector = try! String(contentsOf: root.appendingPathComponent("DynamicIsland/components/Screenshots/ClipboardScreenshotCollector.swift"), encoding: .utf8)
+        XCTAssertTrue(collector.contains("ClipboardChangeBytes.during(pasteboard) { () -> Shot? in"))
+        let watcher = try! String(contentsOf: root.appendingPathComponent("DynamicIsland/managers/ClipboardChangeWatcher.swift"), encoding: .utf8)
+        XCTAssertTrue(watcher.contains("ClipboardChangeBytes.during(pasteboard) {\n            for listener in"))
+    }
+
+    func testSearchLooksAtTheFirstHundredThousandCharactersQuickly() {
+        let big = "начало " + String(repeating: "текст без совпадений ", count: 500_000) + "хвост"
+        XCTAssertGreaterThan(big.utf8.count, 10_000_000)
+        let items = [ClipboardItem(stringData: big, type: .text)]
+            + (0..<49).map { ClipboardItem(stringData: "запись \($0)", type: .text) }
+        let took = (0..<3).map { _ -> TimeInterval in
+            let start = Date()
+            XCTAssertTrue(ClipboardFiltering.apply(items, filter: .all, query: "нет такого слова").isEmpty)
+            return Date().timeIntervalSince(start)
+        }.min()!
+        XCTAssertLessThan(took, 0.05, "\(took) s")
+        XCTAssertEqual(ClipboardFiltering.apply(items, filter: .all, query: "НАЧАЛО").count, 1, "found near the start")
+        XCTAssertTrue(ClipboardFiltering.apply(items, filter: .all, query: "хвост").isEmpty, "past the first 100 000 characters")
+        XCTAssertEqual(ClipboardFiltering.apply(items, filter: .all, query: "запись 7").count, 1)
+    }
+
+    func testShortValueChecksDoNotWalkALongText() {
+        let huge = String(repeating: "1", count: 30_000_000)
+        let item = ClipboardItem(stringData: huge, type: .text)
+        let native = (0..<3).map { _ -> TimeInterval in
+            let start = Date()
+            XCTAssertFalse(item.isOneTimeCode)
+            XCTAssertNil(ClipboardRowText.swatch(huge))
+            return Date().timeIntervalSince(start)
+        }.min()!
+        XCTAssertLessThan(native, 0.001)
+        // Text as the clipboard hands it over (often bridged from NSString,
+        // whose UTF-8 length is not known without walking it).
+        copy(String(repeating: "код ", count: 7_500_000))
+        let bridged = pasteboard.string(forType: .string)!
+        let bridgedTook = (0..<3).map { _ -> TimeInterval in
+            let start = Date()
+            XCTAssertFalse(ClipboardItem(stringData: bridged, type: .text).isOneTimeCode)
+            XCTAssertNil(ClipboardRowText.swatch(bridged))
+            return Date().timeIntervalSince(start)
+        }.min()!
+        XCTAssertLessThan(bridgedTook, 0.001)
+        // Short values still work, with spaces around them.
+        XCTAssertTrue(ClipboardItem(stringData: " 123456\n", type: .text).isOneTimeCode)
+        XCTAssertEqual(ClipboardRowText.swatch(" #5BBEEB "), 0x5BBEEB)
+    }
+
     func testPlainCopyIsRecorded() {
         copy("ordinary text")
         XCTAssertEqual(manager.captureChange(from: pasteboard, sourceBundleID: "com.apple.TextEdit"), .record)

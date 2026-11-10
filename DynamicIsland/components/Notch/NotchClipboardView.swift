@@ -202,7 +202,10 @@ struct NotchClipboardView: View {
 
     /// The Notes tab's cards.
     private var cardsContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // Filtered once for this redraw, not at every use below.
+        let pinned = self.pinned
+        let recent = self.recent
+        return VStack(alignment: .leading, spacing: 8) {
             if !pinned.isEmpty {
                 sectionTitle("Pinned", systemImage: "pin.fill")
                 grid(pinned, numberOffset: 0)
@@ -225,13 +228,14 @@ struct NotchClipboardView: View {
         let searching = !activeQuery.isEmpty
         return VStack(alignment: .leading, spacing: 0) {
             if !pinnedRows.isEmpty {
-                SectionHeader("\(String(localized: "Pinned")) · \(pinned.count)")
+                SectionHeader("\(String(localized: "Pinned")) · \(pinnedRows.lazy.filter { $0.item != nil }.count)")
                 rowColumns(pinnedRows, numberOffset: 0, pinnedSection: true)
                     .padding(.bottom, 12)
             }
             if !recentRows.isEmpty {
+                // Counted from the rows already filtered, not by filtering again.
                 SectionHeader(searching
-                    ? "\(String(localized: "Recent items")) · \(recent.count)"
+                    ? "\(String(localized: "Recent items")) · \(recentRows.lazy.filter { $0.item != nil }.count)"
                     : String(localized: "Recent items"))
                 rowColumns(recentRows, numberOffset: pinnedRows.count, pinnedSection: false)
             }
@@ -1411,7 +1415,9 @@ enum ClipboardRowText {
 
     /// "#5BBEEB" (the whole entry) is a colour: shown with a swatch.
     static func swatch(_ text: String?) -> UInt32? {
-        guard let text else { return nil }
+        // Asked at every redraw of every row: a long text is no colour, and
+        // is turned away before anything walks it.
+        guard let text, !ClipboardItem.isLong(text) else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count == 7, trimmed.first == "#" else { return nil }
         let hex = trimmed.dropFirst()

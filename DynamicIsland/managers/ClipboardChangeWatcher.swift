@@ -247,8 +247,12 @@ final class ClipboardChangeWatcher {
         }
         guard count != lastChangeCount else { return }
         lastChangeCount = count
-        for listener in Array(listeners.values) {
-            listener(count)
+        // The history and the screenshot collector both look at this change:
+        // its bytes are read from the pasteboard once for all of them.
+        ClipboardChangeBytes.during(pasteboard) {
+            for listener in Array(listeners.values) {
+                listener(count)
+            }
         }
     }
 

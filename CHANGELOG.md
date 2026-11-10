@@ -5,6 +5,13 @@ All notable changes to Luoto are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). For the history
 before the fork, see [Atoll's changelog](https://github.com/Ebullioscopic/Atoll/blob/dev/CHANGELOG.md).
 
+## [1.3.6] — 2026-11-10
+
+### Fixed
+- **Large copies no longer freeze the island.** Copying a long web page, code with syntax highlighting or a large document used to stop the island for about a second per megabyte while Luoto read its formatting, which it then dropped anyway. Formatting too large to keep (RTF over 100 KB, HTML over 150 KB) is no longer read when the copy also has plain text: the entry is saved and pasted as that text, as before. A copy that comes only as HTML is still read, so it is never lost from the history.
+- Search in the Clipboard tab looks at the first 100,000 characters of each entry (about fifty pages), so typing a search no longer slows down with very long entries in the history.
+- A copied picture is read from the clipboard once, not two to four times, and checks for codes and colours no longer go through long texts.
+
 ## [1.3.5] — 2026-11-09
 
 ### Fixed

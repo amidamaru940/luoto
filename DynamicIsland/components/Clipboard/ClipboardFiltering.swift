@@ -46,8 +46,14 @@ enum ClipboardFilter: String, CaseIterable, Identifiable {
 }
 
 enum ClipboardFiltering {
-    /// Items of the chosen kind whose full text, preview or file names contain
-    /// the query (case- and diacritic-insensitive). An empty query matches all.
+    /// How far into an entry's text the search looks: about fifty pages. The
+    /// list is filtered at every key and redraw, and searching all of an
+    /// entry of several MB took most of a second each time.
+    static let searchedCharacters = 100_000
+
+    /// Items of the chosen kind whose text (its first `searchedCharacters`),
+    /// preview or file names contain the query (case- and
+    /// diacritic-insensitive). An empty query matches all.
     static func apply(_ items: [ClipboardItem], filter: ClipboardFilter, query: String) -> [ClipboardItem] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return items.filter { item in
@@ -57,9 +63,15 @@ enum ClipboardFiltering {
                 + (item.fileURLs ?? []).map { URL(string: $0)?.lastPathComponent }
             return haystacks.contains { text in
                 guard let text else { return false }
-                return text.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+                return contains(needle, in: text)
             }
         }
+    }
+
+    /// Whether `text`'s first `limit` characters hold `needle`.
+    static func contains(_ needle: String, in text: String, limit: Int = searchedCharacters) -> Bool {
+        let end = text.index(text.startIndex, offsetBy: limit, limitedBy: text.endIndex) ?? text.endIndex
+        return text.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive], range: text.startIndex..<end) != nil
     }
 }
 

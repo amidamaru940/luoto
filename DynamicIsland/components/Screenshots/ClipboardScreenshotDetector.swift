@@ -80,7 +80,7 @@ enum ClipboardScreenshotDetector {
 
     /// The picture's size from its header, without decoding it.
     static func pixelSize(of pasteboard: NSPasteboard) -> CGSize? {
-        guard let data = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff),
+        guard let data = ClipboardChangeBytes.data(pasteboard, forType: .png) ?? ClipboardChangeBytes.data(pasteboard, forType: .tiff),
               let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int,

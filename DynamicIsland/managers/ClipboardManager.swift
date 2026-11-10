@@ -34,11 +34,37 @@ struct ClipboardItem: Identifiable, Codable {
     /// Bundle identifier of the app that was in front when this was copied.
     var sourceBundleID: String?
 
-    /// Only 4 to 8 digits: what verification codes look like.
+    /// Only 4 to 8 digits: what verification codes look like. Asked of every
+    /// entry at each copy, so a long text is turned away by its byte count
+    /// before anything walks it.
     var isOneTimeCode: Bool {
-        guard type == .text, let text = stringData?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+        guard type == .text, let raw = stringData, !ClipboardItem.isLong(raw) else { return false }
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return (4...8).contains(text.count) && text.allSatisfy { $0.isASCII && $0.isNumber }
     }
+
+    /// Above this many bytes a text is no code, colour or other short value:
+    /// checks for those stop before walking it.
+    static let shortTextBytes = 64
+
+    /// Whether `text` is longer than `shortTextBytes`, without walking it: a
+    /// native string knows its UTF-8 length, one bridged from the clipboard
+    /// its UTF-16 length (`utf8.count` there walks all of a non-ASCII text).
+    static func isLong(_ text: String) -> Bool {
+        text.isContiguousUTF8 ? text.utf8.count > shortTextBytes : (text as NSString).length > shortTextBytes
+    }
+
+    /// Rich text above this many bytes is not kept: it is stored and pasted
+    /// as its plain text. The capture does not even parse it (rich copies of
+    /// a few MB took seconds on the main thread, for a result then dropped).
+    static let maxRTFBytes = 100_000
+
+    /// HTML above this many bytes is not parsed when the copy also has plain
+    /// text. Higher than `maxRTFBytes`: RTF made from a web page comes out
+    /// smaller than its HTML (200 KB of a page gave 162 KB, code with a span
+    /// on every token far less), and up to here the formatting was kept
+    /// before. About 0.15 s of parsing at most.
+    static let maxHTMLBytes = 150_000
     
     /// Image bytes for items captured while history persistence is off.
     ///
@@ -136,7 +162,7 @@ struct ClipboardItem: Identifiable, Codable {
         self.stringData = plainText
         self.imageFileName = nil
         self.fileURLs = nil
-        self.rtfData = rtfData.count > 100000 ? nil : rtfData // Skip very large RTF files
+        self.rtfData = rtfData.count > ClipboardItem.maxRTFBytes ? nil : rtfData // Skip very large RTF files
         self.type = .rtf
         self.timestamp = Date()
         self.preview = String(plainText.prefix(50))
@@ -827,6 +853,14 @@ class ClipboardManager: ObservableObject {
         )
         if decision == .remote { Self.logRemoteSkip("remote change \(count) skipped") }
         guard decision == .record else { return decision }
+        // A picture is read from the clipboard once for this change, whoever
+        // asks (the screenshot check, then the history entry).
+        return ClipboardChangeBytes.during(pasteboard) {
+            recordChange(from: pasteboard, sourceBundleID: sourceBundleID, decision: decision)
+        }
+    }
+
+    private func recordChange(from pasteboard: NSPasteboard, sourceBundleID: String?, decision: ClipboardCapturePolicy.Decision) -> ClipboardCapturePolicy.Decision {
         if ClipboardScreenshotDetector.routesToScreenshots, ClipboardScreenshotDetector.isScreenshot(pasteboard) {
             ClipboardShotLog.note("history: change \(pasteboard.changeCount) routed to screenshots")
             return .routedToScreenshots
@@ -903,7 +937,7 @@ class ClipboardManager: ObservableObject {
         // `captureChange` stops it as `.remote` before anything is read.
         if hasImageData && !hasFileURLs {
             for type in imageTypes {
-                if let imageData = pasteboard.data(forType: type) {
+                if let imageData = ClipboardChangeBytes.data(pasteboard, forType: type) {
                     return ClipboardItem(imageData: imageData)
                 }
             }
@@ -912,7 +946,9 @@ class ClipboardManager: ObservableObject {
         // Resolve any rich representation up front so the URL branch below can defer to it:
         // a formatted URL selection (e.g. a link copied from a rich-text editor or web page)
         // exposes an `https://` string *and* RTF/HTML, and must not be flattened to a bare URL.
-        let richText = pasteboard.rtfDataWithFallback()
+        // Too large to parse, with plain text alongside: taken as that text.
+        let richTooLarge = pasteboard.richTextTooLargeToParse()
+        let richText = richTooLarge ? nil : pasteboard.rtfDataWithFallback()
 
         // Priority 4 (below) keeps rich text with its own plain text: the string is read
         // only without it, and then once for both the URL and plain-text checks.
@@ -920,7 +956,8 @@ class ClipboardManager: ObservableObject {
 
         // Priority 3: Plain-text URLs stay typed as `.url` (address-bar copies carry no RTF).
         // Only when there is no usable rich representation — otherwise the formatting wins.
-        if let string, !string.isEmpty,
+        // A large formatted document that happens to start with a link stays text.
+        if !richTooLarge, let string, !string.isEmpty,
            string.hasPrefix("http://") || string.hasPrefix("https://") {
             return ClipboardItem(stringData: string, type: .url)
         }
@@ -1098,15 +1135,18 @@ private extension NSPasteboard {
     /// present — browsers and sites like GitHub expose `public.html` but no `public.rtf` — the
     /// HTML is parsed into an attributed string and re-encoded as RTF so the formatting is
     /// captured instead of lost. Must be called on the main thread: HTML import spins up WebKit.
+    ///
     func rtfDataWithFallback() -> (rtf: Data, plain: String)? {
-        if let rtfData = data(forType: .rtf),
+        let rtfData = ClipboardChangeBytes.data(self, forType: .rtf)
+        if let rtfData,
            let string = NSAttributedString(rtf: rtfData, documentAttributes: nil)?.string,
            !string.isEmpty {
             return (rtfData, string)
         }
         // The importer gets a policy that forbids every load (`ClipboardHTML`):
         // nothing of the copied page reaches the network; the HTML is unchanged.
-        if let htmlData = data(forType: .html),
+        let htmlData = ClipboardChangeBytes.data(self, forType: .html)
+        if let htmlData,
            let attributed = try? NSAttributedString(
                data: ClipboardHTML.withoutNetwork(htmlData),
                options: [.documentType: NSAttributedString.DocumentType.html,
@@ -1140,5 +1180,66 @@ enum ClipboardFinderCopy {
     /// files (upstream kept only the first of several pictures).
     static func keepsAsPicture(fileCount: Int, imageCount: Int) -> Bool {
         fileCount == 1 && imageCount == 1
+    }
+}
+
+extension NSPasteboard {
+    /// Whether the rich text here is too large to parse and plain text is
+    /// there to take instead. RTF above `ClipboardItem.maxRTFBytes` would not
+    /// be kept anyway; HTML above `maxHTMLBytes` took about a second per MB to
+    /// import, on the main thread. Without plain text it is parsed as before,
+    /// so the copy is never lost from the history. Only sizes and types are
+    /// looked at.
+    func richTextTooLargeToParse(rtfLimit: Int = ClipboardItem.maxRTFBytes, htmlLimit: Int = ClipboardItem.maxHTMLBytes) -> Bool {
+        guard let types, types.contains(.string) else { return false }
+        if types.contains(.rtf), let rtf = ClipboardChangeBytes.data(self, forType: .rtf) {
+            return rtf.count > rtfLimit
+        }
+        if types.contains(.html), let html = ClipboardChangeBytes.data(self, forType: .html) {
+            return html.count > htmlLimit
+        }
+        return false
+    }
+}
+
+/// The bytes of one clipboard change, read from the pasteboard once while
+/// that change is handled: the screenshot check and the history entry both
+/// look at the picture, and each read of a large one copies all of it across
+/// from the pasteboard server. Main thread only; outside `during` it reads
+/// straight through.
+enum ClipboardChangeBytes {
+    private static var active: (pasteboard: NSPasteboard, changeCount: Int)?
+    private static var read: [NSPasteboard.PasteboardType: Data?] = [:]
+
+    /// Reads that went to the pasteboard, for tests.
+    private(set) static var pasteboardReads = 0
+
+    static func during<T>(_ pasteboard: NSPasteboard, _ body: () -> T) -> T {
+        dispatchPrecondition(condition: .onQueue(.main))
+        // The same change asked again (the watcher holds it for all its
+        // listeners, then the history entry asks): its bytes are shared.
+        if let active, active.pasteboard === pasteboard, active.changeCount == pasteboard.changeCount {
+            return body()
+        }
+        // Another change inside one (HTML import spins a run loop): the outer
+        // change keeps its own bytes.
+        let outer = (active, read)
+        read = [:]
+        active = (pasteboard, pasteboard.changeCount)
+        defer { (active, read) = outer }
+        return body()
+    }
+
+    static func data(_ pasteboard: NSPasteboard, forType type: NSPasteboard.PasteboardType) -> Data? {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard let active, active.pasteboard === pasteboard, active.changeCount == pasteboard.changeCount else {
+            pasteboardReads += 1
+            return pasteboard.data(forType: type)
+        }
+        if let known = read[type] { return known }
+        pasteboardReads += 1
+        let data = pasteboard.data(forType: type)
+        read[type] = .some(data)
+        return data
     }
 }
