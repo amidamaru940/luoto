@@ -43,6 +43,10 @@ final class MenuBarLayout: ObservableObject {
     /// Callers treat that as "no constraint" rather than guessing.
     @Published private(set) var measurement: Measurement?
 
+    /// Whether Luoto may read other apps' menu bars at all, as of the last
+    /// refresh. Tells "cannot know" apart from "not measured just now".
+    @Published private(set) var accessibilityTrusted = AXIsProcessTrusted()
+
     /// Menus change with the frontmost app, so each activation is measured,
     /// and again a little later for menus an app adds after it comes forward.
     /// Upstream also scanned every 3 s for as long as the island was closed,
@@ -103,6 +107,30 @@ final class MenuBarLayout: ObservableObject {
         return max(0, min(wanted, bound - right))
     }
 
+    /// Whether a surface of `surfaceWidth`, centred in `screenFrame`, comes
+    /// within `gap` of any of the frontmost app's menu titles on this screen's
+    /// menu bar, on either side.
+    ///
+    /// Unlike `clearanceOffset` this never looks for somewhere else to stand:
+    /// a surface that would touch the menus is folded instead (Keep Awake).
+    /// A title exactly `gap` away does not touch; one point closer does.
+    nonisolated static func wingsCollide(
+        surfaceWidth: CGFloat,
+        screenFrame: CGRect,
+        measurement: Measurement,
+        menuBarBand: ClosedRange<CGFloat>,
+        gap: CGFloat
+    ) -> Bool {
+        guard surfaceWidth > 0 else { return false }
+        let left = screenFrame.midX - surfaceWidth / 2
+        let right = left + surfaceWidth
+        return measurement.menuItemFrames.contains { frame in
+            menuBarBand.contains(frame.midY)
+                && frame.midX >= screenFrame.minX && frame.midX <= screenFrame.maxX
+                && frame.maxX > left - gap && frame.minX < right + gap
+        }
+    }
+
     /// The closed island's black surface: the content plus the closed padding
     /// on each side. Clearance is measured on this, so the surface itself
     /// stays off the menus, not just the content inside it.
@@ -125,7 +153,11 @@ final class MenuBarLayout: ObservableObject {
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] note in
+            #if DEBUG
+            let app = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier ?? "?"
+            NSLog("[KeepAwakeFold] activated app=%@", app)
+            #endif
             MainActor.assumeIsolated { self?.refreshWithFollowUps() }
         }
 
@@ -160,7 +192,9 @@ final class MenuBarLayout: ObservableObject {
 
     func refresh() {
         guard !inFlight, trackers > 0 else { return }
-        guard AXIsProcessTrusted() else {
+        let trusted = AXIsProcessTrusted()
+        if accessibilityTrusted != trusted { accessibilityTrusted = trusted }
+        guard trusted else {
             measurement = nil
             return
         }

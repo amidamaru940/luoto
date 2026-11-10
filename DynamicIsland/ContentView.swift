@@ -86,6 +86,17 @@ struct ContentView: View {
     /// Only whether Keep Awake is on: observing the manager re-drew this
     /// whole view every second of a timed session (its countdown).
     @State private var keepAwakeActive = CaffeinateManager.shared.isActive
+    /// Keep Awake's wings fold where the menus reach the notch
+    /// rather than cover them: the last known answer, a start peek,
+    /// a held warning, and whether the session is timed (its width).
+    @State private var keepAwakeLastCollides: Bool?
+    @State private var keepAwakePeeking = false
+    @State private var keepAwakePeekTask: Task<Void, Never>?
+    @State private var keepAwakeWarningHeld = false
+    @State private var keepAwakeLidPhase = LidAwakeController.shared.phase
+    @State private var keepAwakeTimed = CaffeinateManager.shared.expiresAt != nil
+    /// Keep Awake has the closed island: it never steps aside (F5).
+    @State private var keepAwakeOnIsland = false
     /// Sleep, screen off and lock stop the pointer watch (rarely changes).
     @ObservedObject private var activityGate = ActivityGate.shared
     
@@ -928,6 +939,9 @@ struct ContentView: View {
                     .animation(notchAnimation, value: vm.notchState)
                     .animation(.smooth, value: gestureProgress)
             }
+            // Keep Awake's wings fold into the notch and come out of it on a
+            // spring with no overshoot (M1, M2); with Reduce Motion at once (M3).
+            .animation(reduceMotion ? nil : DS.spring, value: keepAwakeActive && keepAwakeWingsShown)
             .conditionalModifier(interactionsEnabled) { view in
                 view
                     .contentShape(resolvedHitShape)
@@ -1156,11 +1170,42 @@ struct ContentView: View {
             .onChange(of: terminalStickyMode) { _, _ in
                 syncStickyTerminalOutsideClickMonitor()
             }
-            .onChange(of: activityGate.state.userPresent) { _, _ in
+            .onChange(of: activityGate.state.userPresent) { _, present in
+                if !present { cancelKeepAwakePeek() }
                 syncHiddenIslandPointerMonitor()
             }
             .onReceive(CaffeinateManager.shared.$isActive.removeDuplicates()) { active in
+                let peeks = KeepAwakeFold.peeksOnStart(
+                    wasActive: keepAwakeActive,
+                    isActive: active,
+                    seen: vm.notchState == .closed && !lockScreenManager.isLocked && activityGate.state.userPresent,
+                    replacedSession: CaffeinateManager.shared.lastActivationReplacedSession
+                )
                 keepAwakeActive = active
+                if peeks {
+                    startKeepAwakePeek()
+                } else if !active {
+                    cancelKeepAwakePeek()
+                    keepAwakeWarningHeld = false
+                }
+            }
+            .onReceive(CaffeinateManager.shared.$expiresAt.map { $0 != nil }.removeDuplicates()) { timed in
+                keepAwakeTimed = timed
+            }
+            .onReceive(LidAwakeController.shared.$phase.removeDuplicates()) { phase in
+                if KeepAwakeFold.holdsWarning(from: keepAwakeLidPhase, to: phase), vm.notchState == .closed {
+                    keepAwakeWarningHeld = true
+                } else if !KeepAwakeLiveActivity.needsAttention(phase) {
+                    keepAwakeWarningHeld = false
+                }
+                keepAwakeLidPhase = phase
+            }
+            .onChange(of: keepAwakeCollides, initial: true) { _, collides in
+                if let collides { keepAwakeLastCollides = collides }
+                logKeepAwakeDecision("measured")
+            }
+            .onChange(of: keepAwakeWingsShown) { _, _ in
+                logKeepAwakeDecision("shown")
             }
             .onChange(of: shouldHideUntilHover) { _, _ in
                 syncHiddenIslandPointerMonitor()
@@ -1212,6 +1257,7 @@ struct ContentView: View {
                 }
             }
             .onChange(of: lockScreenManager.isLocked) { _, locked in
+                if locked { cancelKeepAwakePeek() }
                 if locked {
                     hoverIntentWatch.stop()
                     suppressMusicControlWindowUpdates()
@@ -1282,6 +1328,10 @@ struct ContentView: View {
                     menuBarLayout.startTracking()
                 } else {
                     menuBarLayout.stopTracking()
+                    // Seen in the open island: no peek is owed, and a held
+                    // warning has been read there (F7).
+                    cancelKeepAwakePeek()
+                    keepAwakeWarningHeld = false
                 }
             }
             .onDisappear {
@@ -1309,6 +1359,7 @@ struct ContentView: View {
     /// island is open too: the card hands back to it there.
     private var closedMenuBarClearanceOffset: CGFloat {
         guard !vm.hideOnClosed,
+              !keepAwakeOnIsland,
               restingClosedContentWidth > 0,
               islandHostWidth > 0,
               let measurement = menuBarLayout.measurement,
@@ -1333,6 +1384,86 @@ struct ContentView: View {
             maxRightEdge: screenFrame.midX + islandHostWidth / 2,
             gap: MenuBarLayout.clearanceGap
         )
+    }
+
+    /// Whether Keep Awake's surface would touch the frontmost app's menus on
+    /// this screen (F1); `nil` while nothing is measured. Its width is the
+    /// session's, never the laid-out one: a folded island touches nothing and
+    /// would unfold again.
+    private var keepAwakeCollides: Bool? {
+        guard let measurement = menuBarLayout.measurement,
+              let screenFrame = getScreenFrame(currentScreenName)
+        else { return nil }
+        let top = (NSScreen.screens.first?.frame.maxY ?? screenFrame.maxY) - screenFrame.maxY
+        return MenuBarLayout.wingsCollide(
+            surfaceWidth: KeepAwakeLiveActivity.surfaceWidth(
+                closedNotchWidth: vm.closedNotchSize.width,
+                timed: keepAwakeTimed,
+                padding: activeCornerRadiusInsets.closed.bottom
+            ),
+            screenFrame: screenFrame,
+            measurement: measurement,
+            menuBarBand: top...(top + 40),
+            gap: MenuBarLayout.clearanceGap
+        )
+    }
+
+    /// Keep Awake's wings are out: they fit beside the menus, or a peek or a
+    /// held warning shows them anyway. Folded, Keep Awake gives the closed
+    /// island to whatever would have it without it (F2).
+    private var keepAwakeWingsShown: Bool {
+        KeepAwakeFold.wingsShown(
+            fit: KeepAwakeFold.wingsFit(
+                collides: keepAwakeCollides,
+                lastCollides: keepAwakeLastCollides,
+                trusted: menuBarLayout.accessibilityTrusted
+            ),
+            peeking: keepAwakePeeking,
+            warningHeld: keepAwakeWarningHeld
+        )
+    }
+
+    /// F6: the wings for 2 s after Keep Awake was turned on with the island
+    /// closed. One-shot; cancelled by opening, locking and turning it off.
+    private func startKeepAwakePeek() {
+        keepAwakePeekTask?.cancel()
+        keepAwakePeeking = true
+        keepAwakePeekTask = Task { @MainActor in
+            try? await Task.sleep(for: KeepAwakeFold.peekDuration)
+            guard !Task.isCancelled else { return }
+            keepAwakePeeking = false
+            keepAwakePeekTask = nil
+        }
+    }
+
+    private func cancelKeepAwakePeek() {
+        keepAwakePeekTask?.cancel()
+        keepAwakePeekTask = nil
+        if keepAwakePeeking { keepAwakePeeking = false }
+    }
+
+    /// One line per decision in Debug builds: the app, the answer and what it
+    /// was held against, so a live check can be read from the log.
+    private func logKeepAwakeDecision(_ reason: String) {
+        #if DEBUG
+        guard keepAwakeActive else { return }
+        let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?"
+        let surface = KeepAwakeLiveActivity.surfaceWidth(
+            closedNotchWidth: vm.closedNotchSize.width,
+            timed: keepAwakeTimed,
+            padding: activeCornerRadiusInsets.closed.bottom
+        )
+        let midX = getScreenFrame(currentScreenName)?.midX ?? 0
+        let menus = menuBarLayout.measurement?.menuItemFrames ?? []
+        let leftEnd = menus.filter { $0.midX < midX }.map(\.maxX).max() ?? 0
+        let rightStart = menus.filter { $0.midX >= midX }.map(\.minX).min() ?? 0
+        let line = "\(reason) app=\(app) collides=\(keepAwakeCollides.map { "\($0)" } ?? "nil")"
+            + " last=\(keepAwakeLastCollides.map { "\($0)" } ?? "nil") trusted=\(menuBarLayout.accessibilityTrusted)"
+            + " peek=\(keepAwakePeeking) held=\(keepAwakeWarningHeld) shown=\(keepAwakeWingsShown)"
+            + String(format: " surface=%.1f...%.1f leftMenuEnd=%.1f rightMenuStart=%.1f",
+                     midX - surface / 2, midX + surface / 2, leftEnd, rightStart)
+        NSLog("[KeepAwakeFold] %@", line)
+        #endif
     }
 
     @ViewBuilder
@@ -1902,7 +2033,7 @@ struct ContentView: View {
             && (Defaults[.enableCameraDetection] || Defaults[.enableMicrophoneDetection]) { active.insert(.privacy) }
         if extensionStandalonePayload != nil { active.insert(.extensionActivity) }
         if shown && !locked && !coordinator.expandingView.show && shelfFlash.flash != nil { active.insert(.shelf) }
-        if shown && !locked && !coordinator.expandingView.show && enableCaffeinate && keepAwakeActive { active.insert(.keepAwake) }
+        if shown && !locked && !coordinator.expandingView.show && enableCaffeinate && keepAwakeActive && keepAwakeWingsShown { active.insert(.keepAwake) }
         return active
     }
 
@@ -1965,7 +2096,21 @@ struct ContentView: View {
                 .transition(.opacity.animation(.smooth(duration: 0.25)))
         case .keepAwake:
             KeepAwakeLiveActivity()
-                .transition(.opacity.animation(.smooth(duration: 0.25)))
+                // Out: the glyphs go in 120 ms while the wings fold. In: they
+                // come 60 ms after the wings start to grow (M1, M2).
+                .transition(reduceMotion
+                    ? .opacity.animation(.easeOut(duration: 0.15))
+                    : .asymmetric(
+                        insertion: .opacity.animation(.easeOut(duration: 0.15).delay(0.06)),
+                        removal: .opacity.animation(.easeOut(duration: 0.12))
+                    ))
+                .onAppear { keepAwakeOnIsland = true }
+                .onDisappear {
+                    keepAwakeOnIsland = false
+                    // Whatever took the island (a HUD, music, the lock) has
+                    // also taken the peek: it does not come back over the menus.
+                    cancelKeepAwakePeek()
+                }
         }
     }
 

@@ -90913,6 +90913,36 @@
           }
         }
       }
+    },
+    "%lldh %02lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld ч %02lld"
+          }
+        }
+      }
+    },
+    "Keep Awake: until turned off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не засыпать: пока не выключите"
+          }
+        }
+      }
+    },
+    "Keep Awake: %@ left" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не засыпать: ещё %@"
+          }
+        }
+      }
     }
   },
   "version" : "1.2"

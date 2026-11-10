@@ -43,6 +43,16 @@ final class CaffeinateManager: ObservableObject {
     /// count down. `nil` while idle or during an indefinite session.
     @Published private(set) var remainingTime: TimeInterval?
 
+    /// The closed island's value for a timed session, at minute resolution
+    /// ("45 min", "1h 20"). Republished only when the text changes, so the
+    /// closed island redraws once a minute, not with every tick of
+    /// `remainingTime`. `nil` while idle or during an indefinite session.
+    @Published private(set) var closedLabel: String?
+
+    /// Whether the last `activate(for:)` replaced a running session (a new
+    /// duration) rather than starting one. Read when `isActive` turns true.
+    private(set) var lastActivationReplacedSession = false
+
     /// The duration the running session was started with. Kept so the UI can
     /// show what is running without inferring it back out of `expiresAt`.
     @Published private(set) var activeDuration: CaffeinateDuration?
@@ -53,6 +63,16 @@ final class CaffeinateManager: ObservableObject {
     private var featureCancellable: AnyCancellable?
 
     private init() {
+        #if DEBUG
+        // Live checks of the closed island: `--keep-awake-check` starts an
+        // indefinite session 5 s after launch, with the island closed, as
+        // its shortcut would. Never in a release build.
+        if CommandLine.arguments.contains("--keep-awake-check") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+                self?.activate(for: .indefinite)
+            }
+        }
+        #endif
         // Turning the feature off in Settings must also drop a session that is
         // already running, otherwise the Mac stays awake with no visible
         // control left to stop it.
@@ -81,6 +101,9 @@ final class CaffeinateManager: ObservableObject {
     /// Returns false when macOS refused, so the panel can say so.
     @discardableResult
     func activate(for duration: CaffeinateDuration) -> Bool {
+        // A new duration replaces the running session: `isActive` goes false
+        // and back to true, which is not a start the island should greet.
+        lastActivationReplacedSession = isActive
         resetSession()
 
         guard Defaults[.enableCaffeinate], takeAssertion() else {
@@ -114,6 +137,7 @@ final class CaffeinateManager: ObservableObject {
         isActive = false
         expiresAt = nil
         remainingTime = nil
+        closedLabel = nil
         activeDuration = nil
     }
 
@@ -177,16 +201,20 @@ final class CaffeinateManager: ObservableObject {
         guard let expiry = expiresAt else {
             // Indefinite: nothing to count down, and no timer to burn wakeups on.
             remainingTime = nil
+            closedLabel = nil
             return
         }
 
         remainingTime = max(0, expiry.timeIntervalSinceNow)
+        closedLabel = Self.closedLabel(remaining: remainingTime ?? 0)
         ticker = Timer.publish(every: 1, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 guard let self else { return }
                 let left = max(0, expiry.timeIntervalSinceNow)
                 self.remainingTime = left
+                let label = Self.closedLabel(remaining: left)
+                if self.closedLabel != label { self.closedLabel = label }
                 if left <= 0 {
                     self.deactivate()
                 }
@@ -223,5 +251,34 @@ final class CaffeinateManager: ObservableObject {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    /// "45 min" for minutes, "1h 20" for hours and minutes, in the app's language.
+    nonisolated static var closedMinutesFormat: String { String(localized: "%lld min") }
+    nonisolated static var closedHoursFormat: String { String(localized: "%lldh %02lld") }
+
+    /// The closed island's value at minute resolution, rounded up: "1 min"
+    /// in the last minute, "59 min", then "1h 00", "1h 05", "3h 59". No
+    /// seconds, so it changes once a minute.
+    nonisolated static func closedLabel(
+        remaining: TimeInterval,
+        minutesFormat: String = closedMinutesFormat,
+        hoursFormat: String = closedHoursFormat
+    ) -> String {
+        let minutes = max(1, Int(ceil(max(0, remaining) / 60)))
+        if minutes < 60 {
+            return String(format: minutesFormat, Int64(minutes))
+        }
+        return String(format: hoursFormat, Int64(minutes / 60), Int64(minutes % 60))
+    }
+
+    /// The widest value a timed session can show: "59 min" or the hours
+    /// form at its widest digits (sessions last at most 4 h, "3h 59").
+    /// One width for the whole session keeps the island from twitching.
+    nonisolated static func widestClosedLabels(
+        minutesFormat: String = closedMinutesFormat,
+        hoursFormat: String = closedHoursFormat
+    ) -> [String] {
+        [String(format: minutesFormat, Int64(59)), String(format: hoursFormat, Int64(3), Int64(59))]
     }
 }

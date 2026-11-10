@@ -193,6 +193,57 @@ final class MenuBarClearanceTests: XCTestCase {
             .appendingPathComponent("DynamicIsland/ContentView.swift"), encoding: .utf8)
         XCTAssertFalse(source.contains("isHovering ? 8"), "nothing in the closed island grows under the pointer")
     }
+
+    // MARK: Keep Awake folds instead of stepping aside
+
+    /// Keep Awake's ∞ surface on this screen: 189 + 2 × 38 = 265, centred at
+    /// 855, so it spans 722.5...987.5.
+    private func collides(_ menus: [CGRect], surface: CGFloat = 265, screen: CGRect? = nil, band: ClosedRange<CGFloat> = 0...40) -> Bool {
+        MenuBarLayout.wingsCollide(
+            surfaceWidth: surface,
+            screenFrame: screen ?? self.screen,
+            measurement: MenuBarLayout.Measurement(menuItemFrames: menus, statusItemFrames: []),
+            menuBarBand: band,
+            gap: gap
+        )
+    }
+
+    func testKeepAwakeFoldsWhenMenusReachEitherSide() {
+        XCTAssertFalse(collides([menu(10, 600)]), "short menus")
+        XCTAssertTrue(collides([menu(10, 720)]), "left only")
+        XCTAssertTrue(collides([menu(10, 600), menu(990, 1030)]), "right only")
+        // Thunderbird: Tools up to the notch, Window and Help past it.
+        XCTAssertTrue(collides([menu(10, 700), menu(705, 760), menu(960, 1000), menu(1005, 1060)]), "both sides")
+        XCTAssertFalse(collides([]))
+    }
+
+    func testKeepAwakeGapIsEightOnBothSides() {
+        XCTAssertFalse(collides([menu(10, 714.5)]), "8 pt left: clear")
+        XCTAssertTrue(collides([menu(10, 715.5)]), "7 pt left: touches")
+        XCTAssertFalse(collides([menu(995.5, 1040)]), "8 pt right: clear")
+        XCTAssertTrue(collides([menu(994.5, 1040)]), "7 pt right: touches")
+    }
+
+    func testKeepAwakeIgnoresOtherScreensMenus() {
+        // A display stacked above: its menu bar is outside this one's band.
+        XCTAssertFalse(collides([menu(700, 1000, y: -1000)]))
+        // A display to the right: outside this screen's x range.
+        XCTAssertFalse(collides([menu(1800, 2000)]))
+    }
+
+    func testKeepAwakeOnAScreenWithoutANotch() {
+        // The rule does not depend on a notch: same answer on a plain screen.
+        let plain = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        XCTAssertTrue(collides([menu(10, 830)], screen: plain))
+        XCTAssertFalse(collides([menu(10, 700)], screen: plain))
+    }
+
+    func testKeepAwakeNeverStepsAside() {
+        let source = try! String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DynamicIsland/ContentView.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("guard !vm.hideOnClosed,\n              !keepAwakeOnIsland,"), "F5")
+    }
 }
 
 /// The open island on the 14" MacBook Pro keeps the menu bar to the app in

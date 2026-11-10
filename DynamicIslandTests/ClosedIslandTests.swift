@@ -123,8 +123,15 @@ final class ClosedIslandTests: XCTestCase {
             }
 
             // Keep Awake, colour copied, screenshot flash.
-            for label in ["∞", "14:55", "1:02:03"] {
-                states.append(("Keep Awake «\(label)»", KeepAwakeLiveActivity.closedGeometry(closedNotchWidth: notch, label: label)))
+            states.append(("Keep Awake ∞", KeepAwakeLiveActivity.closedGeometry(closedNotchWidth: notch, timed: false, value: nil)))
+            // One width per session, in the language the value is shown in.
+            let ruWidest = CaffeinateManager.widestClosedLabels(minutesFormat: "%lld мин", hoursFormat: "%lld ч %02lld")
+            let enWidest = CaffeinateManager.widestClosedLabels(minutesFormat: "%lld min", hoursFormat: "%lldh %02lld")
+            for value in ["1 мин", "45 мин", "59 мин", "1 ч 00", "3 ч 59"] {
+                states.append(("Keep Awake «\(value)»", KeepAwakeLiveActivity.closedGeometry(closedNotchWidth: notch, timed: true, value: value, widestLabels: ruWidest)))
+            }
+            for value in ["1 min", "45 min", "59 min", "1h 00", "3h 59"] {
+                states.append(("Keep Awake «\(value)»", KeepAwakeLiveActivity.closedGeometry(closedNotchWidth: notch, timed: true, value: value, widestLabels: enWidest)))
             }
             states.append(("Colour copied", ColorPickedLiveActivityContent.closedGeometry(closedNotchWidth: notch, hex: "#5BBEEB")))
             for count in [1, 3, 25, 99] {
@@ -243,11 +250,118 @@ final class ClosedIslandTests: XCTestCase {
         XCTAssertEqual(ClosedIndicatorResolver.musicBadge(active: [.music, .keepAwake], order: ClosedIndicator.defaultOrder), .keepAwake)
     }
 
-    func testKeepAwakeShowsTimeLeftOrInfinityInEqualWings() {
-        XCTAssertEqual(KeepAwakeLiveActivity.label(remaining: nil), "∞")
-        XCTAssertEqual(KeepAwakeLiveActivity.label(remaining: 895), "14:55")
-        XCTAssertEqual(KeepAwakeLiveActivity.wingWidth(for: "∞"), 26)
-        XCTAssertGreaterThan(KeepAwakeLiveActivity.wingWidth(for: "1:02:03"), KeepAwakeLiveActivity.wingWidth(for: "14:55"))
+    // MARK: Keep Awake folds beside long menus
+
+    private let ruMinutes = "%lld мин"
+    private let ruHours = "%lld ч %02lld"
+
+    func testKeepAwakeValueIsMinutesRoundedUpWithoutSeconds() {
+        func label(_ seconds: TimeInterval) -> String {
+            CaffeinateManager.closedLabel(remaining: seconds, minutesFormat: ruMinutes, hoursFormat: ruHours)
+        }
+        XCTAssertEqual(label(0), "1 мин")
+        XCTAssertEqual(label(1), "1 мин")
+        XCTAssertEqual(label(60), "1 мин")
+        XCTAssertEqual(label(61), "2 мин")
+        XCTAssertEqual(label(45 * 60), "45 мин")
+        XCTAssertEqual(label(59 * 60), "59 мин")
+        XCTAssertEqual(label(59 * 60 + 1), "1 ч 00")
+        XCTAssertEqual(label(65 * 60), "1 ч 05")
+        XCTAssertEqual(label(80 * 60), "1 ч 20")
+        XCTAssertEqual(label(4 * 3600), "4 ч 00")
+        XCTAssertEqual(CaffeinateManager.closedLabel(remaining: 80 * 60, minutesFormat: "%lld min", hoursFormat: "%lldh %02lld"), "1h 20")
+    }
+
+    func testKeepAwakeValueChangesOncePerMinuteAndKeepsOneWidth() {
+        // A four-hour session, second by second: the value changes exactly
+        // at each minute boundary, and the wing never changes width.
+        let widest = CaffeinateManager.widestClosedLabels(minutesFormat: ruMinutes, hoursFormat: ruHours)
+        let wing = KeepAwakeLiveActivity.sessionWing(timed: true, widestLabels: widest)
+        var previous: String?
+        var changes = 0
+        for second in stride(from: 14_400, through: 0, by: -1) {
+            let value = CaffeinateManager.closedLabel(remaining: TimeInterval(second), minutesFormat: ruMinutes, hoursFormat: ruHours)
+            if let previous, previous != value { changes += 1 }
+            previous = value
+            XCTAssertLessThanOrEqual(ClosedWingE.measure(value), wing, value)
+        }
+        // 240 minutes down to one: 239 changes.
+        XCTAssertEqual(changes, 239)
+        XCTAssertEqual(wing, ClosedWingE.measure("59 мин"), "«59 мин» is the widest")
+    }
+
+    func testKeepAwakeWingsMatchTheDetailSheet() {
+        // W = wing + the island's 14 of padding: 38 indefinite (glyphs 24).
+        XCTAssertEqual(KeepAwakeLiveActivity.sessionWing(timed: false), 24)
+        XCTAssertEqual(KeepAwakeLiveActivity.sessionWing(timed: false) + ClosedWingE.islandPadding, 38)
+        let ru = KeepAwakeLiveActivity.sessionWing(timed: true, widestLabels: CaffeinateManager.widestClosedLabels(minutesFormat: ruMinutes, hoursFormat: ruHours))
+        XCTAssertEqual(ru + ClosedWingE.islandPadding, 61, accuracy: 1)
+        let en = KeepAwakeLiveActivity.sessionWing(timed: true, widestLabels: CaffeinateManager.widestClosedLabels(minutesFormat: "%lld min", hoursFormat: "%lldh %02lld"))
+        XCTAssertEqual(en + ClosedWingE.islandPadding, 58, accuracy: 1)
+        XCTAssertEqual(
+            KeepAwakeLiveActivity.surfaceWidth(closedNotchWidth: 189, timed: false, padding: 14),
+            189 + 2 * 38
+        )
+        // The app's own formats, through the string catalog: the test host
+        // runs in English.
+        XCTAssertEqual(CaffeinateManager.closedLabel(remaining: 45 * 60), String(format: String(localized: "%lld min"), Int64(45)))
+        XCTAssertEqual(CaffeinateManager.closedLabel(remaining: 80 * 60), String(format: String(localized: "%lldh %02lld"), Int64(1), Int64(20)))
+        XCTAssertGreaterThanOrEqual(KeepAwakeLiveActivity.sessionWing(timed: true), KeepAwakeLiveActivity.glyphBox)
+    }
+
+    func testFoldedKeepAwakeGivesTheIslandAway() {
+        // F2: folded, Keep Awake is not active, so the next one wins.
+        let order = ClosedIndicatorResolver.normalizedOrder([.keepAwake, .download])
+        XCTAssertEqual(ClosedIndicatorResolver.winner(active: [.keepAwake, .download], order: order), .keepAwake)
+        XCTAssertEqual(ClosedIndicatorResolver.winner(active: [.download], order: order), .download)
+        XCTAssertNil(ClosedIndicatorResolver.winner(active: [], order: order))
+        // The view inserts Keep Awake only with its wings out.
+        let source = try! String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DynamicIsland/ContentView.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("enableCaffeinate && keepAwakeActive && keepAwakeWingsShown { active.insert(.keepAwake) }"))
+    }
+
+    func testKeepAwakeFoldRemembersTheLastAnswer() {
+        // F3.
+        XCTAssertTrue(KeepAwakeFold.wingsFit(collides: nil, lastCollides: nil, trusted: false), "no Accessibility: as before")
+        XCTAssertTrue(KeepAwakeFold.wingsFit(collides: true, lastCollides: nil, trusted: false))
+        XCTAssertFalse(KeepAwakeFold.wingsFit(collides: nil, lastCollides: nil, trusted: true), "before the first answer: folded")
+        XCTAssertFalse(KeepAwakeFold.wingsFit(collides: nil, lastCollides: true, trusted: true), "just closed over Thunderbird")
+        XCTAssertTrue(KeepAwakeFold.wingsFit(collides: nil, lastCollides: false, trusted: true))
+        XCTAssertTrue(KeepAwakeFold.wingsFit(collides: false, lastCollides: true, trusted: true), "a fresh answer wins")
+        XCTAssertFalse(KeepAwakeFold.wingsFit(collides: true, lastCollides: false, trusted: true))
+    }
+
+    func testKeepAwakePeeksAndHeldWarning() {
+        // F6, F7.
+        XCTAssertTrue(KeepAwakeFold.wingsShown(fit: false, peeking: true, warningHeld: false))
+        XCTAssertTrue(KeepAwakeFold.wingsShown(fit: false, peeking: false, warningHeld: true))
+        XCTAssertFalse(KeepAwakeFold.wingsShown(fit: false, peeking: false, warningHeld: false))
+        XCTAssertTrue(KeepAwakeFold.peeksOnStart(wasActive: false, isActive: true, seen: true), "its shortcut")
+        XCTAssertFalse(KeepAwakeFold.peeksOnStart(wasActive: false, isActive: true, seen: false), "from the open panel, locked or asleep")
+        XCTAssertFalse(KeepAwakeFold.peeksOnStart(wasActive: false, isActive: true, seen: true, replacedSession: true), "a new duration")
+        XCTAssertFalse(KeepAwakeFold.peeksOnStart(wasActive: true, isActive: true, seen: true))
+        XCTAssertFalse(KeepAwakeFold.peeksOnStart(wasActive: true, isActive: false, seen: true))
+        XCTAssertEqual(KeepAwakeFold.peekDuration, .seconds(2))
+        XCTAssertTrue(KeepAwakeFold.holdsWarning(from: .ready, to: .failed))
+        XCTAssertTrue(KeepAwakeFold.holdsWarning(from: .idle, to: .helperSilent))
+        XCTAssertFalse(KeepAwakeFold.holdsWarning(from: .failed, to: .helperSilent), "a move inside the group")
+        XCTAssertFalse(KeepAwakeFold.holdsWarning(from: .idle, to: .ready))
+    }
+
+    func testKeepAwakeIsGreyUnlessItNeedsAttention() {
+        for phase: LidAwakePhase in [.idle, .arming, .ready, .foreign] {
+            XCTAssertFalse(KeepAwakeLiveActivity.needsAttention(phase))
+        }
+        for phase: LidAwakePhase in [.stopped(.battery), .stopped(.thermal), .helperOff, .failed, .helperSilent] {
+            XCTAssertTrue(KeepAwakeLiveActivity.needsAttention(phase))
+        }
+        let source = try! String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DynamicIsland/components/Caffeinate/KeepAwakeLiveActivity.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("Self.needsAttention(phase) ? DS.Palette.attention : calm"))
+        XCTAssertFalse(source.contains("@ObservedObject private var caffeinate"), "no redraw on every second's tick")
     }
 
     // MARK: Compact instead of minimalistic

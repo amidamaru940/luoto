@@ -17,27 +17,46 @@
  */
 
 import AppKit
+import Combine
+import os
 import SwiftUI
 
 /// Closed-island indicator while Keep Awake is on, so it is visible without
-/// opening the island: [cup] ─── [ notch ] ─── [time left or ∞].
-/// Both wings are the same width, so the island stays centred on the notch.
+/// opening the island: [cup] ─── [ notch ] ─── [∞ or "45 min"].
+///
+/// A state that can last hours, so it rests in grey below tasks; only
+/// the warning triangle is yellow. Both wings are one width for the whole
+/// session, so the island stays centred on the notch and never twitches
+/// as the minutes go by. Where the frontmost app's menus reach the notch the
+/// wings fold away instead (`KeepAwakeFold`).
 struct KeepAwakeLiveActivity: View {
     @EnvironmentObject var vm: DynamicIslandViewModel
-    @ObservedObject private var caffeinate = CaffeinateManager.shared
-    @ObservedObject private var lid = LidAwakeController.shared
+    @Environment(\.colorSchemeContrast) private var contrast
+    // Taken through `onReceive` with duplicates removed, not by observing the
+    // managers: `CaffeinateManager` republishes `remainingTime` every second.
+    @State private var value = CaffeinateManager.shared.closedLabel
+    @State private var timed = CaffeinateManager.shared.expiresAt != nil
+    @State private var phase = LidAwakeController.shared.phase
 
-    static func label(remaining: TimeInterval?) -> String {
-        remaining.map(CaffeinateManager.remainingLabel) ?? "∞"
-    }
+    /// The glyphs' box: the cup, laptop, triangle and ∞ are all this wide.
+    static let glyphBox: CGFloat = 24
 
     /// The cup, a laptop once it is safe to close the lid, a warning when that
     /// has stopped being true: visible without opening the island.
     static func symbol(phase: LidAwakePhase) -> String {
+        needsAttention(phase) ? "exclamationmark.triangle.fill" : {
+            switch phase {
+            case .ready, .foreign: return "laptopcomputer"
+            default: return "cup.and.saucer.fill"
+            }
+        }()
+    }
+
+    /// The phases shown with the yellow triangle.
+    static func needsAttention(_ phase: LidAwakePhase) -> Bool {
         switch phase {
-        case .idle, .arming: return "cup.and.saucer.fill"
-        case .ready, .foreign: return "laptopcomputer"
-        case .stopped, .helperOff, .failed, .helperSilent: return "exclamationmark.triangle.fill"
+        case .idle, .arming, .ready, .foreign: return false
+        case .stopped, .helperOff, .failed, .helperSilent: return true
         }
     }
 
@@ -50,49 +69,140 @@ struct KeepAwakeLiveActivity: View {
         }
     }
 
-    /// Wide enough for the label in 12 pt monospaced digits.
-    static func wingWidth(for label: String) -> CGFloat {
-        max(26, CGFloat(label.count) * 7.5 + 4)
+    /// One wing's content width for the whole session: the glyph box when
+    /// indefinite, the widest value a timed session can show otherwise
+    /// ("59 min" in English, its Russian form a little wider: wing 47, W 61 with
+    /// the island's 14 of padding).
+    static func sessionWing(timed: Bool, widestLabels: [String]? = nil) -> CGFloat {
+        guard timed else { return glyphBox }
+        guard let widestLabels else { return timedWing }
+        return max(glyphBox, widestLabels.map { ClosedWingE.measure($0) }.max() ?? 0)
     }
 
-    /// 12 pt semibold, tabular digits: the time left.
-    static let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+    /// The timed wing in the app's own language, measured once: the island
+    /// asks for it on every pass.
+    private static let timedWing = sessionWing(timed: true, widestLabels: CaffeinateManager.widestClosedLabels())
 
-    /// The cup flush left, the time flush right, in equal wings.
-    static func closedGeometry(closedNotchWidth: CGFloat, label: String) -> ClosedWingGeometry {
-        let wing = wingWidth(for: label)
+    /// The whole black surface: the notch frame, both wings and the island's
+    /// padding on each side. What `KeepAwakeFold` holds against the menus.
+    static func surfaceWidth(closedNotchWidth: CGFloat, timed: Bool, padding: CGFloat = ClosedWingE.islandPadding) -> CGFloat {
+        closedNotchWidth + 2 * (sessionWing(timed: timed) + padding)
+    }
+
+    /// The glyph flush left, ∞ or the value flush right, in equal wings.
+    static func closedGeometry(
+        closedNotchWidth: CGFloat,
+        timed: Bool,
+        value: String?,
+        widestLabels: [String]? = nil
+    ) -> ClosedWingGeometry {
+        let wing = sessionWing(timed: timed, widestLabels: widestLabels)
         return ClosedWingGeometry(
             leadingWing: wing,
             middle: closedNotchWidth,
             trailingWing: wing,
-            leadingContent: 0,
-            trailingContent: ClosedWingE.measure(label, font: labelFont),
+            leadingContent: glyphBox,
+            trailingContent: value.map { ClosedWingE.measure($0) } ?? glyphBox,
             camera: ClosedWingE.cameraWidth(closedNotchWidth: closedNotchWidth)
         )
     }
 
+    #if DEBUG
+    /// One event per redraw, for the energy check: at rest at most one a minute.
+    private static let signposter = OSSignposter(subsystem: "io.github.amidamaru940.luoto", category: "KeepAwake")
+    #endif
+
+    /// "Keep Awake: until turned off" / "Keep Awake: 1 hour, 20 minutes left".
+    static func spokenValue(remaining: TimeInterval?) -> String {
+        guard let remaining else { return String(localized: "Keep Awake: until turned off") }
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .full
+        formatter.allowedUnits = [.hour, .minute]
+        let minutes = max(1, ceil(max(0, remaining) / 60))
+        let spoken = formatter.string(from: minutes * 60) ?? CaffeinateManager.closedLabel(remaining: remaining)
+        return String(format: String(localized: "Keep Awake: %@ left"), spoken)
+    }
+
     var body: some View {
-        let label = Self.label(remaining: caffeinate.remainingTime)
-        let wing = Self.wingWidth(for: label)
+        #if DEBUG
+        let _ = Self.signposter.emitEvent("KeepAwake.body")
+        #endif
+        let wing = Self.sessionWing(timed: timed)
+        let calm = DSE.Palette.secondary(contrast)
         HStack(spacing: 0) {
-            Image(systemName: Self.symbol(phase: lid.phase))
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(DS.Palette.attention)
+            Image(systemName: Self.symbol(phase: phase))
+                .font(DSE.Typeface.glyphClosed)
+                .foregroundStyle(Self.needsAttention(phase) ? DS.Palette.attention : calm)
                 .frame(width: wing, alignment: .leading)
 
             Rectangle()
                 .fill(Color.black)
                 .frame(width: vm.closedNotchSize.width)
 
-            Text(label)
-                .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                .foregroundStyle(DS.Palette.attention)
-                .lineLimit(1)
-                .frame(width: wing, alignment: .trailing)
+            Group {
+                if let value {
+                    Text(verbatim: value)
+                        .font(DSE.Typeface.value)
+                        .fixedSize()
+                        .contentTransition(.numericText(countsDown: true))
+                } else {
+                    Image(systemName: "infinity")
+                        .font(DSE.Typeface.glyphClosed)
+                }
+            }
+            .foregroundStyle(calm)
+            .lineLimit(1)
+            .frame(width: wing, alignment: .trailing)
         }
         .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
+        .animation(DS.spring, value: value)
+        .onReceive(CaffeinateManager.shared.$closedLabel.removeDuplicates()) { value = $0 }
+        .onReceive(CaffeinateManager.shared.$expiresAt.map { $0 != nil }.removeDuplicates()) { timed = $0 }
+        .onReceive(LidAwakeController.shared.$phase.removeDuplicates()) { phase = $0 }
+        // One phrase: "Keep Awake: 45 minutes left, lid can be closed".
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Keep Awake"))
-        .accessibilityValue(Text(Self.spokenPhase(lid.phase).map { "\(label), \($0)" } ?? label))
+        .accessibilityLabel(Text(verbatim: {
+            let spoken = Self.spokenValue(remaining: value == nil ? nil : CaffeinateManager.shared.remainingTime)
+            return Self.spokenPhase(phase).map { "\(spoken), \($0)" } ?? spoken
+        }()))
     }
+}
+
+/// Whether Keep Awake's wings are out on the closed island. Pure, so the
+/// rules can be held by tests.
+enum KeepAwakeFold {
+    /// F1/F3: out when they would touch no menu title. Without Accessibility
+    /// nothing can be known, and the wings show as they always did. With it
+    /// but no measurement just now -- right after the island closes, an app
+    /// without a menu bar, a scan that ran out of time -- the last answer
+    /// stands; before the first one the wings stay folded, so they never
+    /// flash over a long menu.
+    static func wingsFit(collides: Bool?, lastCollides: Bool?, trusted: Bool) -> Bool {
+        guard trusted else { return true }
+        if let collides { return !collides }
+        if let lastCollides { return !lastCollides }
+        return false
+    }
+
+    /// F6/F7: a peek after turning it on, or a held warning, shows the wings
+    /// over the menus.
+    static func wingsShown(fit: Bool, peeking: Bool, warningHeld: Bool) -> Bool {
+        fit || peeking || warningHeld
+    }
+
+    /// F6: a peek only when it was turned on while the island was closed
+    /// (its shortcut). From the open panel the user has just seen it.
+    /// `seen`: the island is closed and someone can see it (not locked,
+    /// display awake). A new duration replacing a running session is no start.
+    static func peeksOnStart(wasActive: Bool, isActive: Bool, seen: Bool, replacedSession: Bool = false) -> Bool {
+        !wasActive && isActive && seen && !replacedSession
+    }
+
+    /// F7: held on entering the triangle's phases, not on moves inside them.
+    static func holdsWarning(from old: LidAwakePhase, to new: LidAwakePhase) -> Bool {
+        !KeepAwakeLiveActivity.needsAttention(old) && KeepAwakeLiveActivity.needsAttention(new)
+    }
+
+    /// How long the start peek lasts.
+    static let peekDuration: Duration = .seconds(2)
 }

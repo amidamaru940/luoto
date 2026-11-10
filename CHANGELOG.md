@@ -5,6 +5,14 @@ All notable changes to Luoto are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). For the history
 before the fork, see [Atoll's changelog](https://github.com/Ebullioscopic/Atoll/blob/dev/CHANGELOG.md).
 
+## [1.3.4] — 2026-11-09
+
+### Changed
+- **Keep Awake no longer covers the menus of the app you are using.** When an app's menus reach the notch (Xcode, Thunderbird), the Keep Awake cup and ∞ fold into the notch, and every menu stays visible and clickable. In apps with short menus they stay where they were. Before, the island stayed over the notch and hid menus on both sides of it.
+- Keep Awake on the closed island is now calm grey instead of yellow. Yellow is kept for the warning that the lid must not be closed, which stays visible until you open the island.
+- A timed session shows minutes, «45 мин» or «1 ч 20» ("45 min", "1h 20"), instead of a countdown in seconds, and the island keeps one width for the whole session. The closed island no longer redraws every second while it counts down.
+- Turning Keep Awake on with its shortcut while the island is closed shows the cup for 2 seconds, even over long menus, as a confirmation.
+
 ## [1.3.3] — 2026-11-09
 
 ### Changed
