@@ -79,6 +79,27 @@ final class MenuBarLayout: ObservableObject {
     private var windowChange: DispatchWorkItem?
     private var lastWindowRefresh = Date.distantPast
     private var observerRetry: DispatchWorkItem?
+    private var confirmation: DispatchWorkItem?
+
+    /// How soon a scan that found room for Keep Awake is checked again.
+    nonisolated static let confirmDelay: TimeInterval = 0.2
+
+    /// One more scan shortly, to confirm a first answer of "room" (Keep
+    /// Awake's wings come out only after two). Without it the second one
+    /// came at the 0.6 s follow-up, or never after a window event, and the
+    /// cup stayed hidden. One at a time; nothing while not tracking.
+    func confirmSoon() {
+        guard trackers > 0, confirmation == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.confirmation = nil
+                self.refresh()
+            }
+        }
+        confirmation = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.confirmDelay, execute: work)
+    }
     /// The app whose observer was already tried again once: never twice.
     private var observerRetriedPid: pid_t = 0
 
@@ -99,6 +120,8 @@ final class MenuBarLayout: ObservableObject {
             observerRetry?.cancel()
             observerRetry = nil
             observerRetriedPid = 0
+            confirmation?.cancel()
+            confirmation = nil
             stopWatchingWindows()
         }
     }
@@ -236,6 +259,8 @@ final class MenuBarLayout: ObservableObject {
         observerRetry?.cancel()
         observerRetry = nil
         observerRetriedPid = 0
+        confirmation?.cancel()
+        confirmation = nil
         stopWatchingWindows()
         rescanWanted = false
         measurement = nil

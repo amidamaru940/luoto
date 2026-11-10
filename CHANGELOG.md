@@ -5,6 +5,11 @@ All notable changes to Luoto are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). For the history
 before the fork, see [Atoll's changelog](https://github.com/Ebullioscopic/Atoll/blob/dev/CHANGELOG.md).
 
+## [1.3.8] — 2026-11-10
+
+### Fixed
+- **The Keep Awake cup shows up promptly again.** Since 1.3.7 the cup and ∞ come out only after two checks in a row find room beside the menus. The second check came only half a second later, and after a window opened or closed it did not come at all, so the cup could stay hidden until you switched apps. Now the second check follows within 0.2 seconds while Keep Awake is on.
+
 ## [1.3.7] — 2026-11-10
 
 ### Fixed

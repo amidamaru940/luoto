@@ -355,6 +355,12 @@ final class ClosedIslandTests: XCTestCase {
         state = KeepAwakeFold.afterScan(lastCollides: true, evidence: E(pid: 9, roomyScans: 1), pid: 10, collides: false)
         XCTAssertEqual(state.lastCollides, true)
         XCTAssertEqual(KeepAwakeFold.roomyScansToUnfold, 2)
+        // A first roomy scan is checked again at once, while Keep Awake is on.
+        XCTAssertTrue(KeepAwakeFold.wantsConfirmation(keepAwakeOn: true, collides: false, evidence: E(pid: 9, roomyScans: 1)))
+        XCTAssertFalse(KeepAwakeFold.wantsConfirmation(keepAwakeOn: true, collides: false, evidence: E(pid: 9, roomyScans: 2)), "already out")
+        XCTAssertFalse(KeepAwakeFold.wantsConfirmation(keepAwakeOn: true, collides: true, evidence: E(pid: 9, roomyScans: 0)), "no room: nothing to confirm")
+        XCTAssertFalse(KeepAwakeFold.wantsConfirmation(keepAwakeOn: false, collides: false, evidence: E(pid: 9, roomyScans: 1)), "Keep Awake off: no extra scans")
+        XCTAssertLessThanOrEqual(MenuBarLayout.confirmDelay, 0.25)
         // Thunderbird with no window in focus: only the Apple menu and its
         // own. Its full menus may come back at any moment: no room.
         XCTAssertTrue(KeepAwakeFold.menuMayExpand(itemCount: 2))
@@ -363,7 +369,8 @@ final class ClosedIslandTests: XCTestCase {
         let source = try! String(contentsOf: URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DynamicIsland/ContentView.swift"), encoding: .utf8)
-        XCTAssertTrue(source.contains("collides: collides || KeepAwakeFold.menuMayExpand(itemCount: measurement.menuItemFrames.count)"))
+        XCTAssertTrue(source.contains("let noRoom = collides || KeepAwakeFold.menuMayExpand(itemCount: measurement.menuItemFrames.count)"))
+        XCTAssertTrue(source.contains("collides: noRoom"))
     }
 
     func testKeepAwakePeeksAndHeldWarning() {

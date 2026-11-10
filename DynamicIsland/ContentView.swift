@@ -1438,14 +1438,20 @@ struct ContentView: View {
     /// room, unfolds after two in a row that do (`KeepAwakeFold.afterScan`).
     private func applyKeepAwakeScan(_ measurement: MenuBarLayout.Measurement?) {
         guard let measurement, let collides = keepAwakeCollides else { return }
+        let noRoom = collides || KeepAwakeFold.menuMayExpand(itemCount: measurement.menuItemFrames.count)
         let next = KeepAwakeFold.afterScan(
             lastCollides: keepAwakeLastCollides,
             evidence: keepAwakeFitEvidence,
             pid: measurement.pid,
-            collides: collides || KeepAwakeFold.menuMayExpand(itemCount: measurement.menuItemFrames.count)
+            collides: noRoom
         )
         keepAwakeLastCollides = next.lastCollides
         keepAwakeFitEvidence = next.evidence
+        // Room found once: check again in 0.2 s rather than wait for a later
+        // scan, so the cup comes out promptly and never stays hidden.
+        if KeepAwakeFold.wantsConfirmation(keepAwakeOn: keepAwakeActive, collides: noRoom, evidence: next.evidence) {
+            menuBarLayout.confirmSoon()
+        }
     }
 
     /// F6: the wings for 2 s after Keep Awake was turned on with the island

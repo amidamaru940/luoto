@@ -203,6 +203,13 @@ enum KeepAwakeFold {
     /// such scan let the wings out over its full menus until the next one.
     static let roomyScansToUnfold = 2
 
+    /// Whether a scan that left the wings folded should be confirmed at once:
+    /// it found room, but not yet enough scans in a row did. Only while Keep
+    /// Awake is on, so nothing more is scanned the rest of the day.
+    static func wantsConfirmation(keepAwakeOn: Bool, collides: Bool, evidence: FitEvidence) -> Bool {
+        keepAwakeOn && !collides && evidence.roomyScans < roomyScansToUnfold
+    }
+
     /// The answer after a scan of `pid`: no room folds at once; room unfolds
     /// only once `roomyScansToUnfold` scans of that app in a row found it.
     static func afterScan(lastCollides: Bool?, evidence: FitEvidence, pid: pid_t, collides: Bool) -> (lastCollides: Bool?, evidence: FitEvidence) {
