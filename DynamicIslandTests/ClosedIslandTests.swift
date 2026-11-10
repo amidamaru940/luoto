@@ -324,13 +324,46 @@ final class ClosedIslandTests: XCTestCase {
 
     func testKeepAwakeFoldRemembersTheLastAnswer() {
         // F3.
-        XCTAssertTrue(KeepAwakeFold.wingsFit(collides: nil, lastCollides: nil, trusted: false), "no Accessibility: as before")
-        XCTAssertTrue(KeepAwakeFold.wingsFit(collides: true, lastCollides: nil, trusted: false))
-        XCTAssertFalse(KeepAwakeFold.wingsFit(collides: nil, lastCollides: nil, trusted: true), "before the first answer: folded")
-        XCTAssertFalse(KeepAwakeFold.wingsFit(collides: nil, lastCollides: true, trusted: true), "just closed over Thunderbird")
-        XCTAssertTrue(KeepAwakeFold.wingsFit(collides: nil, lastCollides: false, trusted: true))
-        XCTAssertTrue(KeepAwakeFold.wingsFit(collides: false, lastCollides: true, trusted: true), "a fresh answer wins")
-        XCTAssertFalse(KeepAwakeFold.wingsFit(collides: true, lastCollides: false, trusted: true))
+        XCTAssertTrue(KeepAwakeFold.wingsFit(lastCollides: nil, trusted: false), "no Accessibility: as before")
+        XCTAssertTrue(KeepAwakeFold.wingsFit(lastCollides: true, trusted: false))
+        XCTAssertFalse(KeepAwakeFold.wingsFit(lastCollides: nil, trusted: true), "before the first answer: folded")
+        XCTAssertFalse(KeepAwakeFold.wingsFit(lastCollides: true, trusted: true), "just closed over Thunderbird")
+        XCTAssertTrue(KeepAwakeFold.wingsFit(lastCollides: false, trusted: true))
+    }
+
+    func testKeepAwakeFoldsAtOnceButUnfoldsOnlyAfterTwoRoomyScans() {
+        typealias E = KeepAwakeFold.FitEvidence
+        // Thunderbird, folded; the island closes and the first scan catches
+        // its partial menu bar: the wings stay folded.
+        var state: (lastCollides: Bool?, evidence: E) = (true, E(pid: 7, roomyScans: 0))
+        state = KeepAwakeFold.afterScan(lastCollides: state.lastCollides, evidence: state.evidence, pid: 7, collides: false)
+        XCTAssertEqual(state.lastCollides, true)
+        // The follow-up sees the full menus: still folded, the count restarts.
+        state = KeepAwakeFold.afterScan(lastCollides: state.lastCollides, evidence: state.evidence, pid: 7, collides: true)
+        XCTAssertEqual(state.lastCollides, true)
+        XCTAssertEqual(state.evidence.roomyScans, 0)
+        // Finder comes forward: one roomy scan is not enough...
+        state = KeepAwakeFold.afterScan(lastCollides: state.lastCollides, evidence: state.evidence, pid: 9, collides: false)
+        XCTAssertEqual(state.lastCollides, true)
+        // ...the second of the same app is.
+        state = KeepAwakeFold.afterScan(lastCollides: state.lastCollides, evidence: state.evidence, pid: 9, collides: false)
+        XCTAssertEqual(state.lastCollides, false)
+        // One scan that finds no room folds at once.
+        state = KeepAwakeFold.afterScan(lastCollides: state.lastCollides, evidence: state.evidence, pid: 9, collides: true)
+        XCTAssertEqual(state.lastCollides, true)
+        // Roomy scans of two different apps do not add up.
+        state = KeepAwakeFold.afterScan(lastCollides: true, evidence: E(pid: 9, roomyScans: 1), pid: 10, collides: false)
+        XCTAssertEqual(state.lastCollides, true)
+        XCTAssertEqual(KeepAwakeFold.roomyScansToUnfold, 2)
+        // Thunderbird with no window in focus: only the Apple menu and its
+        // own. Its full menus may come back at any moment: no room.
+        XCTAssertTrue(KeepAwakeFold.menuMayExpand(itemCount: 2))
+        XCTAssertTrue(KeepAwakeFold.menuMayExpand(itemCount: 1))
+        XCTAssertFalse(KeepAwakeFold.menuMayExpand(itemCount: 7), "Finder's short menus are room")
+        let source = try! String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DynamicIsland/ContentView.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("collides: collides || KeepAwakeFold.menuMayExpand(itemCount: measurement.menuItemFrames.count)"))
     }
 
     func testKeepAwakePeeksAndHeldWarning() {

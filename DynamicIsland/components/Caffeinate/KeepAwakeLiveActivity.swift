@@ -172,16 +172,43 @@ struct KeepAwakeLiveActivity: View {
 /// rules can be held by tests.
 enum KeepAwakeFold {
     /// F1/F3: out when they would touch no menu title. Without Accessibility
-    /// nothing can be known, and the wings show as they always did. With it
-    /// but no measurement just now -- right after the island closes, an app
-    /// without a menu bar, a scan that ran out of time -- the last answer
-    /// stands; before the first one the wings stay folded, so they never
-    /// flash over a long menu.
-    static func wingsFit(collides: Bool?, lastCollides: Bool?, trusted: Bool) -> Bool {
+    /// nothing can be known, and the wings show as they always did. With it,
+    /// the last answer stands while nothing is measured (right after the
+    /// island closes, an app without a menu bar, a scan that ran out of time);
+    /// before the first answer the wings stay folded, so they never flash
+    /// over a long menu.
+    static func wingsFit(lastCollides: Bool?, trusted: Bool) -> Bool {
         guard trusted else { return true }
-        if let collides { return !collides }
-        if let lastCollides { return !lastCollides }
-        return false
+        return lastCollides == false
+    }
+
+    /// Room for the wings found by scans of one app in a row.
+    struct FitEvidence: Equatable {
+        var pid: pid_t = 0
+        var roomyScans = 0
+    }
+
+    /// A menu bar of no more than the Apple menu and the app's own: an app
+    /// between windows. Thunderbird shows exactly that while none of its
+    /// windows has focus, and its full menus come back the moment one does,
+    /// often with nothing to tell Luoto. Such a bar counts as no room, so the
+    /// wings are never out when the menus come back under them.
+    static func menuMayExpand(itemCount: Int) -> Bool {
+        itemCount <= 2
+    }
+
+    /// How many scans in a row of the same app must find room before the
+    /// wings come out. An app can show a partial menu bar for a moment as it
+    /// comes forward (a mail app did, right after the island closed), and one
+    /// such scan let the wings out over its full menus until the next one.
+    static let roomyScansToUnfold = 2
+
+    /// The answer after a scan of `pid`: no room folds at once; room unfolds
+    /// only once `roomyScansToUnfold` scans of that app in a row found it.
+    static func afterScan(lastCollides: Bool?, evidence: FitEvidence, pid: pid_t, collides: Bool) -> (lastCollides: Bool?, evidence: FitEvidence) {
+        if collides { return (true, FitEvidence(pid: pid, roomyScans: 0)) }
+        let roomy = evidence.pid == pid ? evidence.roomyScans + 1 : 1
+        return (roomy >= roomyScansToUnfold ? false : lastCollides, FitEvidence(pid: pid, roomyScans: roomy))
     }
 
     /// F6/F7: a peek after turning it on, or a held warning, shows the wings

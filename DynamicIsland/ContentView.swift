@@ -90,6 +90,7 @@ struct ContentView: View {
     /// rather than cover them: the last known answer, a start peek,
     /// a held warning, and whether the session is timed (its width).
     @State private var keepAwakeLastCollides: Bool?
+    @State private var keepAwakeFitEvidence = KeepAwakeFold.FitEvidence()
     @State private var keepAwakePeeking = false
     @State private var keepAwakePeekTask: Task<Void, Never>?
     @State private var keepAwakeWarningHeld = false
@@ -1202,9 +1203,18 @@ struct ContentView: View {
                 }
                 keepAwakeLidPhase = phase
             }
-            .onChange(of: keepAwakeCollides, initial: true) { _, collides in
-                if let collides { keepAwakeLastCollides = collides }
+            .onChange(of: menuBarLayout.measurement, initial: true) { _, measurement in
+                applyKeepAwakeScan(measurement)
                 logKeepAwakeDecision("measured")
+            }
+            .onChange(of: keepAwakeCollides) { _, collides in
+                // Anything that makes the island touch the menus folds it at
+                // once: another screen, a wider timed session, the notch size.
+                // Coming out again still waits for two roomy scans.
+                if collides == true {
+                    keepAwakeLastCollides = true
+                    keepAwakeFitEvidence = KeepAwakeFold.FitEvidence()
+                }
             }
             .onChange(of: keepAwakeWingsShown) { _, _ in
                 logKeepAwakeDecision("shown")
@@ -1416,13 +1426,26 @@ struct ContentView: View {
     private var keepAwakeWingsShown: Bool {
         KeepAwakeFold.wingsShown(
             fit: KeepAwakeFold.wingsFit(
-                collides: keepAwakeCollides,
                 lastCollides: keepAwakeLastCollides,
                 trusted: menuBarLayout.accessibilityTrusted
             ),
             peeking: keepAwakePeeking,
             warningHeld: keepAwakeWarningHeld
         )
+    }
+
+    /// Each scan of the front app's menus: folds at the first that finds no
+    /// room, unfolds after two in a row that do (`KeepAwakeFold.afterScan`).
+    private func applyKeepAwakeScan(_ measurement: MenuBarLayout.Measurement?) {
+        guard let measurement, let collides = keepAwakeCollides else { return }
+        let next = KeepAwakeFold.afterScan(
+            lastCollides: keepAwakeLastCollides,
+            evidence: keepAwakeFitEvidence,
+            pid: measurement.pid,
+            collides: collides || KeepAwakeFold.menuMayExpand(itemCount: measurement.menuItemFrames.count)
+        )
+        keepAwakeLastCollides = next.lastCollides
+        keepAwakeFitEvidence = next.evidence
     }
 
     /// F6: the wings for 2 s after Keep Awake was turned on with the island

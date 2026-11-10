@@ -5,6 +5,12 @@ All notable changes to Luoto are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). For the history
 before the fork, see [Atoll's changelog](https://github.com/Ebullioscopic/Atoll/blob/dev/CHANGELOG.md).
 
+## [1.3.7] — 2026-11-10
+
+### Fixed
+- **Keep Awake no longer flashes over the menus right after you turn it on.** While none of its windows has focus, Thunderbird shows only its name in the menu bar, and its full menus come back as soon as a window does. Luoto saw room for the cup and ∞ in that moment and let them out over the menus that came back. A menu bar with only the Apple menu and the app's own now counts as no room, the cup and ∞ fold at once whenever they would touch a menu, and they come out only after two checks in a row find room (about half a second after you switch apps).
+- Keep Awake also folds at once when the island moves to another screen or gets wider, instead of waiting for the next app switch.
+
 ## [1.3.6] — 2026-11-10
 
 ### Fixed

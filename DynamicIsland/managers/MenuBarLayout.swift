@@ -36,6 +36,11 @@ final class MenuBarLayout: ObservableObject {
     struct Measurement: Equatable {
         var menuItemFrames: [CGRect]
         var statusItemFrames: [CGRect]
+        /// The app measured, and which scan this was: every scan is published,
+        /// even one that found the same menus, so a decision can count how many
+        /// scans in a row agree.
+        var pid: pid_t = 0
+        var scan: Int = 0
     }
 
     /// `nil` when nothing can be known -- no accessibility permission, an app
@@ -60,6 +65,7 @@ final class MenuBarLayout: ObservableObject {
     private var followUps: [DispatchWorkItem] = []
     private var trackers = 0
     private var inFlight = false
+    private var scanCount = 0
     /// Asked for while a scan was running: one more scan follows it, so an
     /// activation is never lost behind a slow app's scan.
     private var rescanWanted = false
@@ -413,7 +419,11 @@ final class MenuBarLayout: ObservableObject {
                             self.retryObserver(for: pid)
                         }
                     }
-                    if self.measurement != measured { self.measurement = measured }
+                    self.scanCount += 1
+                    var stamped = measured
+                    stamped?.pid = pid
+                    stamped?.scan = self.scanCount
+                    if self.measurement != stamped { self.measurement = stamped }
                 }
                 if next.rescan {
                     DispatchQueue.main.asyncAfter(deadline: .now() + Self.rescanPause) { [weak self] in
