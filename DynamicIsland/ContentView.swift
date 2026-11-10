@@ -1182,6 +1182,8 @@ struct ContentView: View {
                     replacedSession: CaffeinateManager.shared.lastActivationReplacedSession
                 )
                 keepAwakeActive = active
+                // Only Keep Awake folds when an app's menus change under it.
+                menuBarLayout.setWatchesWindows(active)
                 if peeks {
                     startKeepAwakePeek()
                 } else if !active {

@@ -5,6 +5,12 @@ All notable changes to Luoto are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). For the history
 before the fork, see [Atoll's changelog](https://github.com/Ebullioscopic/Atoll/blob/dev/CHANGELOG.md).
 
+## [1.3.5] — 2026-11-09
+
+### Fixed
+- **Keep Awake folds in Thunderbird too.** Thunderbird shows its full menus only once a window is open. If you switched to it before the window opened, Luoto kept the menus it saw at the switch, and the Keep Awake cup and ∞ stayed over Tools and Window. While Keep Awake is on, Luoto now measures the menus again when the app in front opens a window, at most once every 2 seconds. Nothing more runs while Keep Awake is off.
+- A menu measurement that finished after you had already switched to another app could be shown for the new app. It is now dropped, and the app in front is measured instead.
+
 ## [1.3.4] — 2026-11-09
 
 ### Changed

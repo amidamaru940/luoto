@@ -50,14 +50,52 @@ final class MenuBarLayout: ObservableObject {
     /// Menus change with the frontmost app, so each activation is measured,
     /// and again a little later for menus an app adds after it comes forward.
     /// Upstream also scanned every 3 s for as long as the island was closed,
-    /// waking Luoto and the frontmost app with it all day; a menu that
-    /// changes while its app stays in front waits for the next activation.
+    /// waking Luoto and the frontmost app with it all day. While someone asks
+    /// for it (`watchesWindows`), a window opening in the frontmost app
+    /// measures again too; otherwise a menu that changes while its app stays
+    /// in front waits for the next activation.
     static let followUpDelays: [TimeInterval] = [0.6, 2]
 
     private var observer: NSObjectProtocol?
     private var followUps: [DispatchWorkItem] = []
     private var trackers = 0
     private var inFlight = false
+    /// Asked for while a scan was running: one more scan follows it, so an
+    /// activation is never lost behind a slow app's scan.
+    private var rescanWanted = false
+
+    /// The frontmost app's window events. An app's menus can change without
+    /// it being activated again -- Thunderbird shows only its own name in
+    /// the menu bar until a window opens, then all its menus -- so a window
+    /// opening or taking focus measures again. Event-driven, nothing polls.
+    private var windowObserver: AXObserver?
+    private var windowObserverPid: pid_t = 0
+    private var windowChange: DispatchWorkItem?
+    private var lastWindowRefresh = Date.distantPast
+    private var observerRetry: DispatchWorkItem?
+    /// The app whose observer was already tried again once: never twice.
+    private var observerRetriedPid: pid_t = 0
+
+    /// Whether window events of the frontmost app measure again. Only Keep
+    /// Awake's folding needs them, so they are watched only while it is on:
+    /// the rest of the day nothing more than activations wakes Luoto.
+    private(set) var watchesWindows = false
+
+    func setWatchesWindows(_ on: Bool) {
+        guard watchesWindows != on else { return }
+        watchesWindows = on
+        if on {
+            windowObserverPid = 0
+            refresh()
+        } else {
+            windowChange?.cancel()
+            windowChange = nil
+            observerRetry?.cancel()
+            observerRetry = nil
+            observerRetriedPid = 0
+            stopWatchingWindows()
+        }
+    }
 
     private init() {}
 
@@ -187,19 +225,162 @@ final class MenuBarLayout: ObservableObject {
         }
         followUps.forEach { $0.cancel() }
         followUps.removeAll()
+        windowChange?.cancel()
+        windowChange = nil
+        observerRetry?.cancel()
+        observerRetry = nil
+        observerRetriedPid = 0
+        stopWatchingWindows()
+        rescanWanted = false
         measurement = nil
     }
 
+    /// The notifications that mean the frontmost app's menu bar may have
+    /// changed: a window opened, or another one became the main window. Focus
+    /// moving between windows is left out: it does not change the menu bar.
+    /// Some popups (completion lists) are windows too; `windowRefreshInterval`
+    /// keeps those to one scan every 2 s while the person types.
+    nonisolated static let windowNotifications: [String] = [
+        kAXWindowCreatedNotification,
+        kAXMainWindowChangedNotification,
+    ]
+
+    /// How long window events settle before the menus are measured again: a
+    /// window opening sends several at once.
+    nonisolated static let windowChangeDelay: TimeInterval = 0.3
+
+    /// Window events measure at most this often, however many arrive: an app
+    /// that opens windows all the time costs one scan every 2 s at most.
+    nonisolated static let windowRefreshInterval: TimeInterval = 2
+
+    /// When to measure after a window event at `now`, given the last
+    /// window-driven measurement: after the events settle, and no sooner than
+    /// `windowRefreshInterval` after the last one.
+    nonisolated static func windowRefreshDelay(now: Date, lastRefresh: Date) -> TimeInterval {
+        max(windowChangeDelay, windowRefreshInterval - now.timeIntervalSince(lastRefresh))
+    }
+
+    fileprivate func windowsChanged() {
+        guard trackers > 0, watchesWindows else { return }
+        // One measurement already waiting covers this event too.
+        guard windowChange == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.windowChange = nil
+                self.lastWindowRefresh = Date()
+                self.refresh()
+            }
+        }
+        windowChange = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.windowRefreshDelay(now: Date(), lastRefresh: lastWindowRefresh),
+            execute: work
+        )
+    }
+
+    /// What follows a finished scan of `scannedPid`. A result for an app no
+    /// longer in front is not shown and the front one is measured instead; a
+    /// request that came during the scan gets one more scan. Pure, for tests.
+    nonisolated static func afterScan(scannedPid: pid_t, frontmostPid: pid_t?, rescanWanted: Bool) -> (publish: Bool, rescan: Bool) {
+        let stale = frontmostPid != scannedPid
+        return (publish: !stale, rescan: stale || rescanWanted)
+    }
+
+    /// A rescan right behind a scan waits this long, so a slow app that keeps
+    /// sending events is not measured back to back.
+    nonisolated static let rescanPause: TimeInterval = 0.3
+
+    /// Whether a scan of `pid` also registers for its window events: only
+    /// while they are watched, and only for an app not tried yet. An app
+    /// whose registration failed counts as tried until another comes forward.
+    nonisolated static func registersObserver(watching: Bool, pid: pid_t, triedPid: pid_t) -> Bool {
+        watching && pid != triedPid
+    }
+
+    /// Whether a failed registration of `pid` gets its one more try.
+    nonisolated static func retriesObserver(pid: pid_t, retriedPid: pid_t) -> Bool {
+        pid != retriedPid
+    }
+
+    /// An app still starting may not answer yet: one more try a little later,
+    /// as long as it is still in front and nothing watches it.
+    private func retryObserver(for pid: pid_t) {
+        observerRetry?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.observerRetry = nil
+                guard self.watchesWindows, self.windowObserver == nil,
+                      NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+                self.windowObserverPid = 0
+                self.refresh()
+            }
+        }
+        observerRetry = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+    }
+
+    private func stopWatchingWindows() {
+        if let windowObserver {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(windowObserver), .commonModes)
+        }
+        windowObserver = nil
+        windowObserverPid = 0
+    }
+
+    /// Watches `pid`'s windows in place of the previous app's. The observer is
+    /// set up off the main thread (registering is a call into that app, which
+    /// may hang), then its source joins the main run loop.
+    private func watchWindows(of pid: pid_t, observer: AXObserver?) {
+        stopWatchingWindows()
+        // Tried, whether or not it worked: the next scans of this app do not
+        // register again (only `retryObserver` does, once).
+        windowObserverPid = pid
+        guard let observer else { return }
+        windowObserver = observer
+        // Common modes: events still arrive while a menu is held open.
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+    }
+
+    /// An observer of `pid`'s window events whose callback reaches `layout`.
+    /// `nil` when the app does not answer.
+    nonisolated private static func makeWindowObserver(pid: pid_t, layout: MenuBarLayout) -> AXObserver? {
+        var observer: AXObserver?
+        guard AXObserverCreate(pid, { _, _, _, refcon in
+            guard let refcon else { return }
+            let layout = Unmanaged<MenuBarLayout>.fromOpaque(refcon).takeUnretainedValue()
+            DispatchQueue.main.async { MainActor.assumeIsolated { layout.windowsChanged() } }
+        }, &observer) == .success, let observer else { return nil }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, elementTimeout)
+        let refcon = Unmanaged.passUnretained(layout).toOpaque()
+        var added = 0
+        for name in windowNotifications {
+            let result = AXObserverAddNotification(observer, app, name as CFString, refcon)
+            // An app that does not answer is not asked again for the rest.
+            if result == .cannotComplete { break }
+            if result == .success { added += 1 }
+        }
+        return added > 0 ? observer : nil
+    }
+
     func refresh() {
-        guard !inFlight, trackers > 0 else { return }
+        guard trackers > 0 else { return }
+        guard !inFlight else {
+            rescanWanted = true
+            return
+        }
         let trusted = AXIsProcessTrusted()
         if accessibilityTrusted != trusted { accessibilityTrusted = trusted }
         guard trusted else {
+            stopWatchingWindows()
             measurement = nil
             return
         }
         guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
               Self.canMeasure(pid: pid) else {
+            stopWatchingWindows()
             measurement = nil
             return
         }
@@ -207,14 +388,38 @@ final class MenuBarLayout: ObservableObject {
         // Off the main actor: these are cross-process calls, and an app that has
         // stopped answering would otherwise take the notch's UI down with it.
         inFlight = true
+        let watchNewApp = Self.registersObserver(watching: watchesWindows, pid: pid, triedPid: windowObserverPid)
         Task.detached(priority: .utility) {
-            let measured = Self.menuItemFrames(pid: pid).map {
+            let frames = Self.menuItemFrames(pid: pid)
+            let measured = frames.map {
                 Measurement(menuItemFrames: $0, statusItemFrames: Self.statusItemFrames())
             }
+            // An app whose menu bar did not answer is not asked to register.
+            let observer = watchNewApp && frames != nil ? Self.makeWindowObserver(pid: pid, layout: self) : nil
             await MainActor.run {
                 self.inFlight = false
+                let next = Self.afterScan(
+                    scannedPid: pid,
+                    frontmostPid: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                    rescanWanted: self.rescanWanted
+                )
+                self.rescanWanted = false
                 guard self.trackers > 0 else { return }
-                if self.measurement != measured { self.measurement = measured }
+                if next.publish {
+                    if watchNewApp, self.watchesWindows {
+                        self.watchWindows(of: pid, observer: observer)
+                        if observer == nil, Self.retriesObserver(pid: pid, retriedPid: self.observerRetriedPid) {
+                            self.observerRetriedPid = pid
+                            self.retryObserver(for: pid)
+                        }
+                    }
+                    if self.measurement != measured { self.measurement = measured }
+                }
+                if next.rescan {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.rescanPause) { [weak self] in
+                        MainActor.assumeIsolated { self?.refresh() }
+                    }
+                }
             }
         }
     }

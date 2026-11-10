@@ -1,3 +1,4 @@
+import ApplicationServices
 import XCTest
 @testable import Atoll
 import SwiftUI
@@ -236,6 +237,50 @@ final class MenuBarClearanceTests: XCTestCase {
         let plain = CGRect(x: 0, y: 0, width: 1920, height: 1080)
         XCTAssertTrue(collides([menu(10, 830)], screen: plain))
         XCTAssertFalse(collides([menu(10, 700)], screen: plain))
+    }
+
+    func testMenusAreMeasuredAgainWhenTheFrontAppsWindowsChange() {
+        // Thunderbird shows only its name until a window opens: a window
+        // opening must measure again, not only an activation. Focus moving
+        // between windows and popups is left out, it would measure on keys.
+        XCTAssertEqual(Set(MenuBarLayout.windowNotifications), [
+            kAXWindowCreatedNotification, kAXMainWindowChangedNotification,
+        ])
+        XCTAssertFalse(MenuBarLayout.windowNotifications.contains(kAXFocusedWindowChangedNotification))
+    }
+
+    func testWindowEventsMeasureAtMostEveryTwoSeconds() {
+        let now = Date()
+        // Long since the last one: only the settling delay.
+        XCTAssertEqual(MenuBarLayout.windowRefreshDelay(now: now, lastRefresh: .distantPast), MenuBarLayout.windowChangeDelay)
+        // Right after one: waits out the 2 s.
+        XCTAssertEqual(MenuBarLayout.windowRefreshDelay(now: now, lastRefresh: now), 2, accuracy: 0.001)
+        XCTAssertEqual(MenuBarLayout.windowRefreshDelay(now: now, lastRefresh: now.addingTimeInterval(-1.5)), 0.5, accuracy: 0.001)
+        XCTAssertEqual(MenuBarLayout.windowRefreshDelay(now: now, lastRefresh: now.addingTimeInterval(-1.9)), MenuBarLayout.windowChangeDelay, accuracy: 0.001)
+    }
+
+    func testAScanForAnAppNoLongerInFrontIsNotShown() {
+        // The app that was measured is still in front: shown, no more scans.
+        XCTAssertTrue(MenuBarLayout.afterScan(scannedPid: 10, frontmostPid: 10, rescanWanted: false) == (true, false))
+        // Asked again meanwhile: shown, and one more scan.
+        XCTAssertTrue(MenuBarLayout.afterScan(scannedPid: 10, frontmostPid: 10, rescanWanted: true) == (true, true))
+        // Another app came forward: not shown, the front one is measured.
+        XCTAssertTrue(MenuBarLayout.afterScan(scannedPid: 10, frontmostPid: 11, rescanWanted: false) == (false, true))
+        XCTAssertTrue(MenuBarLayout.afterScan(scannedPid: 10, frontmostPid: nil, rescanWanted: false) == (false, true))
+        XCTAssertGreaterThanOrEqual(MenuBarLayout.rescanPause, MenuBarLayout.windowChangeDelay)
+    }
+
+    func testAWindowObserverIsTriedOnceAndRetriedOnce() {
+        // Only while window events are watched (Keep Awake on).
+        XCTAssertFalse(MenuBarLayout.registersObserver(watching: false, pid: 10, triedPid: 0))
+        XCTAssertTrue(MenuBarLayout.registersObserver(watching: true, pid: 10, triedPid: 0))
+        // Tried already, whether it worked or not: the next scans leave it.
+        XCTAssertFalse(MenuBarLayout.registersObserver(watching: true, pid: 10, triedPid: 10))
+        // Another app came forward: it is tried.
+        XCTAssertTrue(MenuBarLayout.registersObserver(watching: true, pid: 11, triedPid: 10))
+        // A failed registration gets one more try, never a second.
+        XCTAssertTrue(MenuBarLayout.retriesObserver(pid: 10, retriedPid: 0))
+        XCTAssertFalse(MenuBarLayout.retriesObserver(pid: 10, retriedPid: 10))
     }
 
     func testKeepAwakeNeverStepsAside() {
